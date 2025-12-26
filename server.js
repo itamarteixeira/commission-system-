@@ -47,7 +47,8 @@ function initDatabase() {
       numero_duplicata TEXT,
       valor REAL,
       vencimento TEXT,
-      FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id)
+      previsao_recebimento TEXT,
+      FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id) ON DELETE CASCADE
     )`);
 
     // Tabela de títulos de comissão
@@ -58,10 +59,11 @@ function initDatabase() {
       percentual_comissao REAL,
       valor_comissao REAL,
       status TEXT DEFAULT 'pendente',
+      status_pagamento TEXT DEFAULT 'pendente',
       pedido_id INTEGER,
       data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (duplicata_id) REFERENCES duplicatas(id),
-      FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id),
+      FOREIGN KEY (duplicata_id) REFERENCES duplicatas(id) ON DELETE CASCADE,
+      FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id) ON DELETE CASCADE,
       FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
     )`);
 
@@ -74,7 +76,54 @@ function initDatabase() {
       status TEXT DEFAULT 'aberto',
       data_criacao TEXT DEFAULT CURRENT_TIMESTAMP
     )`);
+
+    // Tabela de notas fiscais de serviço (NFS-e)
+    db.run(`CREATE TABLE IF NOT EXISTS notas_fiscais_servico (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pedido_id INTEGER,
+      numero_nfse TEXT,
+      data_emissao TEXT,
+      valor REAL,
+      status_pagamento TEXT DEFAULT 'aguardando',
+      data_pagamento TEXT,
+      observacoes TEXT,
+      data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
+    )`);
+
+    // Verificar e adicionar colunas novas se necessário (migração)
+    db.all("PRAGMA table_info(duplicatas)", [], (err, columns) => {
+      if (!err && columns) {
+        const hasPrevisao = columns.some(col => col.name === 'previsao_recebimento');
+        if (!hasPrevisao) {
+          db.run("ALTER TABLE duplicatas ADD COLUMN previsao_recebimento TEXT");
+        }
+      }
+    });
+
+    db.all("PRAGMA table_info(titulos_comissao)", [], (err, columns) => {
+      if (!err && columns) {
+        const hasStatusPagamento = columns.some(col => col.name === 'status_pagamento');
+        if (!hasStatusPagamento) {
+          db.run("ALTER TABLE titulos_comissao ADD COLUMN status_pagamento TEXT DEFAULT 'pendente'");
+        }
+      }
+    });
   });
+}
+
+// Função para calcular previsão de recebimento (dia 20 do mês seguinte ao vencimento)
+function calcularPrevisaoRecebimento(vencimento) {
+  if (!vencimento) return null;
+  
+  try {
+    const dataVenc = new Date(vencimento);
+    // Adicionar 1 mês
+    const mesProximo = new Date(dataVenc.getFullYear(), dataVenc.getMonth() + 1, 20);
+    return mesProximo.toISOString().split('T')[0];
+  } catch (error) {
+    return null;
+  }
 }
 
 // Função para extrair dados do XML da NF-e
@@ -171,9 +220,11 @@ app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
           // Inserir duplicatas e títulos de comissão
           const promises = dados.duplicatas.map(dup => {
             return new Promise((resolve, reject) => {
-              db.run(`INSERT INTO duplicatas (nota_fiscal_id, numero_duplicata, valor, vencimento)
-                      VALUES (?, ?, ?, ?)`,
-                [notaFiscalId, dup.numero, dup.valor, dup.vencimento],
+              const previsaoRecebimento = calcularPrevisaoRecebimento(dup.vencimento);
+              
+              db.run(`INSERT INTO duplicatas (nota_fiscal_id, numero_duplicata, valor, vencimento, previsao_recebimento)
+                      VALUES (?, ?, ?, ?, ?)`,
+                [notaFiscalId, dup.numero, dup.valor, dup.vencimento, previsaoRecebimento],
                 function(err) {
                   if (err) return reject(err);
                   
@@ -181,8 +232,8 @@ app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
                   const valorComissao = (dup.valor * percentualComissao) / 100;
 
                   db.run(`INSERT INTO titulos_comissao 
-                          (duplicata_id, nota_fiscal_id, percentual_comissao, valor_comissao)
-                          VALUES (?, ?, ?, ?)`,
+                          (duplicata_id, nota_fiscal_id, percentual_comissao, valor_comissao, status_pagamento)
+                          VALUES (?, ?, ?, ?, 'pendente')`,
                     [duplicataId, notaFiscalId, percentualComissao, valorComissao],
                     (err) => {
                       if (err) return reject(err);
@@ -202,10 +253,13 @@ app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
                   tc.id,
                   tc.valor_comissao,
                   tc.percentual_comissao,
+                  tc.status_pagamento,
                   nf.numero_nota,
+                  nf.destinatario_nome as cliente_nome,
                   d.numero_duplicata,
                   d.valor as valor_duplicata,
-                  d.vencimento
+                  d.vencimento,
+                  d.previsao_recebimento
                 FROM titulos_comissao tc
                 JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
                 JOIN duplicatas d ON tc.duplicata_id = d.id
@@ -250,11 +304,7 @@ app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
 // Atualizar valor de comissão de um título
 app.put('/api/titulos-comissao/:id', (req, res) => {
   const tituloId = req.params.id;
-  const { valorComissao } = req.body;
-
-  if (!valorComissao || valorComissao < 0) {
-    return res.status(400).json({ error: 'Valor de comissão inválido' });
-  }
+  const { valorComissao, statusPagamento } = req.body;
 
   // Verificar se título não está em pedido
   db.get('SELECT pedido_id FROM titulos_comissao WHERE id = ?', [tituloId], (err, row) => {
@@ -266,20 +316,106 @@ app.put('/api/titulos-comissao/:id', (req, res) => {
       return res.status(404).json({ error: 'Título não encontrado' });
     }
 
-    if (row.pedido_id) {
-      return res.status(400).json({ error: 'Não é possível editar título já vinculado a um pedido' });
+    if (row.pedido_id && valorComissao !== undefined) {
+      return res.status(400).json({ error: 'Não é possível editar valor de título já vinculado a um pedido' });
     }
 
-    // Atualizar valor
-    db.run('UPDATE titulos_comissao SET valor_comissao = ? WHERE id = ?',
-      [valorComissao, tituloId],
-      (err) => {
-        if (err) {
-          return res.status(500).json({ error: 'Erro ao atualizar título' });
-        }
-        res.json({ success: true, message: 'Valor atualizado com sucesso' });
+    // Preparar campos para atualização
+    let updates = [];
+    let values = [];
+
+    if (valorComissao !== undefined && valorComissao >= 0) {
+      updates.push('valor_comissao = ?');
+      values.push(valorComissao);
+    }
+
+    if (statusPagamento !== undefined) {
+      updates.push('status_pagamento = ?');
+      values.push(statusPagamento);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'Nenhum campo para atualizar' });
+    }
+
+    values.push(tituloId);
+    const sql = `UPDATE titulos_comissao SET ${updates.join(', ')} WHERE id = ?`;
+
+    db.run(sql, values, (err) => {
+      if (err) {
+        return res.status(500).json({ error: 'Erro ao atualizar título' });
       }
-    );
+      res.json({ success: true, message: 'Título atualizado com sucesso' });
+    });
+  });
+});
+
+// Obter detalhes de um título específico
+app.get('/api/titulos-comissao/:id', (req, res) => {
+  const tituloId = req.params.id;
+  
+  const sql = `
+    SELECT 
+      tc.*,
+      nf.numero_nota,
+      nf.emitente_nome,
+      nf.destinatario_nome as cliente_nome,
+      d.numero_duplicata,
+      d.valor as valor_duplicata,
+      d.vencimento,
+      d.previsao_recebimento
+    FROM titulos_comissao tc
+    JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
+    JOIN duplicatas d ON tc.duplicata_id = d.id
+    WHERE tc.id = ?
+  `;
+  
+  db.get(sql, [tituloId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao buscar título' });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'Título não encontrado' });
+    }
+    res.json(row);
+  });
+});
+
+// Excluir nota fiscal e todos os títulos vinculados
+app.delete('/api/notas-fiscais/:id', (req, res) => {
+  const notaId = req.params.id;
+
+  // Verificar se há títulos em pedidos
+  db.get(`
+    SELECT COUNT(*) as count 
+    FROM titulos_comissao 
+    WHERE nota_fiscal_id = ? AND pedido_id IS NOT NULL
+  `, [notaId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao verificar títulos' });
+    }
+
+    if (row.count > 0) {
+      return res.status(400).json({ 
+        error: 'Não é possível excluir. Existem títulos desta nota vinculados a pedidos.' 
+      });
+    }
+
+    // Excluir nota (CASCADE deletará duplicatas e títulos automaticamente)
+    db.run('DELETE FROM notas_fiscais WHERE id = ?', [notaId], function(err) {
+      if (err) {
+        return res.status(500).json({ error: 'Erro ao excluir nota fiscal' });
+      }
+
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Nota fiscal não encontrada' });
+      }
+
+      res.json({ 
+        success: true, 
+        message: 'Nota fiscal e títulos excluídos com sucesso' 
+      });
+    });
   });
 });
 
@@ -303,13 +439,16 @@ app.get('/api/titulos-comissao', (req, res) => {
       tc.valor_comissao,
       tc.percentual_comissao,
       tc.status,
+      tc.status_pagamento,
       tc.pedido_id,
       tc.data_criacao,
       nf.numero_nota,
       nf.emitente_nome,
+      nf.destinatario_nome as cliente_nome,
       d.numero_duplicata,
       d.valor as valor_duplicata,
-      d.vencimento
+      d.vencimento,
+      d.previsao_recebimento
     FROM titulos_comissao tc
     JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
     JOIN duplicatas d ON tc.duplicata_id = d.id
@@ -416,6 +555,163 @@ app.get('/api/pedidos/:id', (req, res) => {
         titulos: titulos
       });
     });
+  });
+});
+
+// ========== ROTAS PARA NOTAS FISCAIS DE SERVIÇO (NFS-e) ==========
+
+// Listar todas as NFS-e
+app.get('/api/nfse', (req, res) => {
+  const sql = `
+    SELECT 
+      nfse.*,
+      p.descricao as pedido_descricao,
+      p.valor_total as pedido_valor
+    FROM notas_fiscais_servico nfse
+    LEFT JOIN pedidos p ON nfse.pedido_id = p.id
+    ORDER BY nfse.data_criacao DESC
+  `;
+  
+  db.all(sql, [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao buscar NFS-e' });
+    }
+    res.json(rows);
+  });
+});
+
+// Obter detalhes de uma NFS-e
+app.get('/api/nfse/:id', (req, res) => {
+  const nfseId = req.params.id;
+  
+  const sql = `
+    SELECT 
+      nfse.*,
+      p.descricao as pedido_descricao,
+      p.valor_total as pedido_valor,
+      p.quantidade_titulos
+    FROM notas_fiscais_servico nfse
+    LEFT JOIN pedidos p ON nfse.pedido_id = p.id
+    WHERE nfse.id = ?
+  `;
+  
+  db.get(sql, [nfseId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao buscar NFS-e' });
+    }
+    if (!row) {
+      return res.status(404).json({ error: 'NFS-e não encontrada' });
+    }
+    res.json(row);
+  });
+});
+
+// Criar nova NFS-e
+app.post('/api/nfse', (req, res) => {
+  const { pedidoId, numeroNfse, dataEmissao, valor, statusPagamento, observacoes } = req.body;
+
+  if (!numeroNfse || !dataEmissao || !valor) {
+    return res.status(400).json({ error: 'Número, data de emissão e valor são obrigatórios' });
+  }
+
+  // Verificar se pedido existe (se informado)
+  if (pedidoId) {
+    db.get('SELECT id FROM pedidos WHERE id = ?', [pedidoId], (err, row) => {
+      if (err || !row) {
+        return res.status(400).json({ error: 'Pedido não encontrado' });
+      }
+      inserirNfse();
+    });
+  } else {
+    inserirNfse();
+  }
+
+  function inserirNfse() {
+    db.run(`
+      INSERT INTO notas_fiscais_servico 
+      (pedido_id, numero_nfse, data_emissao, valor, status_pagamento, observacoes)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `, [pedidoId || null, numeroNfse, dataEmissao, valor, statusPagamento || 'aguardando', observacoes || ''],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: 'Erro ao criar NFS-e' });
+      }
+      res.json({ 
+        success: true, 
+        id: this.lastID,
+        message: 'NFS-e criada com sucesso' 
+      });
+    });
+  }
+});
+
+// Atualizar NFS-e
+app.put('/api/nfse/:id', (req, res) => {
+  const nfseId = req.params.id;
+  const { pedidoId, numeroNfse, dataEmissao, valor, statusPagamento, dataPagamento, observacoes } = req.body;
+
+  let updates = [];
+  let values = [];
+
+  if (pedidoId !== undefined) {
+    updates.push('pedido_id = ?');
+    values.push(pedidoId || null);
+  }
+  if (numeroNfse) {
+    updates.push('numero_nfse = ?');
+    values.push(numeroNfse);
+  }
+  if (dataEmissao) {
+    updates.push('data_emissao = ?');
+    values.push(dataEmissao);
+  }
+  if (valor !== undefined) {
+    updates.push('valor = ?');
+    values.push(valor);
+  }
+  if (statusPagamento) {
+    updates.push('status_pagamento = ?');
+    values.push(statusPagamento);
+  }
+  if (dataPagamento !== undefined) {
+    updates.push('data_pagamento = ?');
+    values.push(dataPagamento || null);
+  }
+  if (observacoes !== undefined) {
+    updates.push('observacoes = ?');
+    values.push(observacoes);
+  }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'Nenhum campo para atualizar' });
+  }
+
+  values.push(nfseId);
+  const sql = `UPDATE notas_fiscais_servico SET ${updates.join(', ')} WHERE id = ?`;
+
+  db.run(sql, values, function(err) {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao atualizar NFS-e' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ error: 'NFS-e não encontrada' });
+    }
+    res.json({ success: true, message: 'NFS-e atualizada com sucesso' });
+  });
+});
+
+// Excluir NFS-e
+app.delete('/api/nfse/:id', (req, res) => {
+  const nfseId = req.params.id;
+
+  db.run('DELETE FROM notas_fiscais_servico WHERE id = ?', [nfseId], function(err) {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao excluir NFS-e' });
+    }
+    if (this.changes === 0) {
+      return res.status(404).json({ error: 'NFS-e não encontrada' });
+    }
+    res.json({ success: true, message: 'NFS-e excluída com sucesso' });
   });
 });
 
