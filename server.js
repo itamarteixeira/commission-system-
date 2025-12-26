@@ -132,66 +132,87 @@ async function extrairDadosPDF(pdfBuffer) {
   try {
     const data = await pdfParse(pdfBuffer);
     const text = data.text;
+    
+    console.log('PDF Text Length:', text.length);
 
-    // Extrair informações usando regex
-    const numeroNotaMatch = text.match(/(?:NOTA FISCAL|NF-e|N[ºª])\s*[\s:]*(\d{6,})/i);
+    // Extrair informações usando regex mais flexíveis
+    const numeroNotaMatch = text.match(/(?:NOTA FISCAL|NF-e|N[ºª°]?\.?\s*(?:FISCAL)?)\s*[\s:]*(\d{6,})/i);
     const serieMatch = text.match(/(?:S[ÉE]RIE|SERIE)\s*[\s:]*(\d+)/i);
-    const dataEmissaoMatch = text.match(/(?:EMISS[ÃA]O|DATA\s*EMISS[ÃA]O)\s*[\s:]*(\d{2}\/\d{2}\/\d{4})/i);
+    const dataEmissaoMatch = text.match(/(?:EMISS[ÃA]O|DATA\s*(?:DE\s*)?EMISS[ÃA]O)\s*[\s:]*(\d{2}[\/\-]\d{2}[\/\-]\d{4})/i);
+    
+    // Chave de acesso - 44 dígitos
     const chaveAcessoMatch = text.match(/(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})/);
     
-    // Emitente (normalmente aparece primeiro)
-    const emitenteMatch = text.match(/(?:RAZ[ÃA]O\s*SOCIAL|EMITENTE)[:\s]*([^\n]{10,100})/i);
-    const emitenteCnpjMatch = text.match(/(?:CNPJ|CPF)[:\s]*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/i);
+    // Emitente (geralmente aparece após "RAZ" ou "NOME")
+    const emitenteMatch = text.match(/(?:RAZ[ÃA]O\s*SOCIAL|NOME|EMITENTE)[:\s]*([^\n]{10,100})/i);
+    const emitenteCnpjMatch = text.match(/(?:CNPJ|CPF)[:\s]*(\d{2}\.?\d{3}\.?\d{3}[\/\\]?\d{4}[\-]?\d{2})/i);
     
-    // Destinatário
-    const destinatarioMatch = text.match(/(?:DESTINAT[ÁA]RIO|CLIENTE)[:\s]*([^\n]{10,100})/i);
-    const destCnpjMatch = text.match(/(?:CNPJ|CPF)(?:\/CPF)?[:\s]*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/gi);
+    // Destinatário/Cliente
+    const destinatarioMatch = text.match(/(?:DESTINAT[ÁA]RIO[\/\\]?REMETENTE|CLIENTE|TOMADOR)[:\s]*([^\n]{10,100})/i);
     
-    // Valor total
-    const valorTotalMatch = text.match(/(?:VALOR\s*TOTAL|TOTAL\s*DA\s*NOTA)[:\s]*R?\$?\s*([\d.,]+)/i);
+    // Segundo CNPJ (geralmente do destinatário)
+    const allCnpjMatches = text.match(/(?:CNPJ|CPF)[:\s]*(\d{2}\.?\d{3}\.?\d{3}[\/\\]?\d{4}[\-]?\d{2})/gi);
+    let destCnpj = '';
+    if (allCnpjMatches && allCnpjMatches.length > 1) {
+      destCnpj = allCnpjMatches[1].match(/(\d{2}\.?\d{3}\.?\d{3}[\/\\]?\d{4}[\-]?\d{2})/)[1];
+    }
     
-    // Duplicatas - procurar padrões como "001 15/01/2024 R$ 1.000,00"
-    const duplicatasRegex = /(\d{3}|\d{2}\/\d{3})\s+(\d{2}\/\d{2}\/\d{4})\s+R?\$?\s*([\d.,]+)/gi;
+    // Valor total (procurar por padrões como "VALOR TOTAL" ou "TOTAL DA NOTA")
+    const valorTotalMatch = text.match(/(?:VALOR\s*TOTAL|TOTAL\s*(?:DA\s*)?(?:NOTA|NF)|VL\.?\s*TOTAL)[:\s]*R?\$?\s*([\d.,]+)/i);
+    
+    // Duplicatas - múltiplos padrões
     const duplicatas = [];
+    
+    // Padrão 1: "001 15/01/2024 R$ 1.000,00"
+    const dupRegex1 = /(\d{3}|\d{2}[\/\\]\d{3})\s+(\d{2}[\/\\]\d{2}[\/\\]\d{4})\s+R?\$?\s*([\d.,]+)/gi;
     let dupMatch;
     
-    while ((dupMatch = duplicatasRegex.exec(text)) !== null) {
-      duplicatas.push({
-        numero: dupMatch[1].replace('/', ''),
-        vencimento: dupMatch[2].split('/').reverse().join('-'), // Converter para YYYY-MM-DD
-        valor: parseFloat(dupMatch[3].replace(/\./g, '').replace(',', '.'))
-      });
+    while ((dupMatch = dupRegex1.exec(text)) !== null) {
+      const numero = dupMatch[1].replace(/[\/\\]/g, '');
+      const vencimentoStr = dupMatch[2];
+      const valor = parseFloat(dupMatch[3].replace(/\./g, '').replace(',', '.'));
+      
+      // Converter data DD/MM/YYYY para YYYY-MM-DD
+      const dateParts = vencimentoStr.split(/[\/\\]/);
+      const vencimento = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+      
+      duplicatas.push({ numero, vencimento, valor });
     }
-
-    // Se não encontrou duplicatas pelo padrão acima, tentar outro formato
+    
+    // Padrão 2: "DUPLICATA 001 ... 15/01/2024 ... 1.000,00"
     if (duplicatas.length === 0) {
-      const dupRegex2 = /(?:DUPLICATA|PARC)[:\s]*(\d+)[^\d]*([\d\/]+)[^\d]*([\d.,]+)/gi;
+      const dupRegex2 = /(?:DUPLICATA|PARC(?:ELA)?)[:\s]*(\d+)[^\d]+([\d\/\\]+)[^\d]+([\d.,]+)/gi;
       while ((dupMatch = dupRegex2.exec(text)) !== null) {
-        const vencimento = dupMatch[2].includes('/') ? dupMatch[2].split('/').reverse().join('-') : null;
-        if (vencimento) {
-          duplicatas.push({
-            numero: dupMatch[1].padStart(3, '0'),
-            vencimento: vencimento,
-            valor: parseFloat(dupMatch[3].replace(/\./g, '').replace(',', '.'))
-          });
+        const numero = dupMatch[1].padStart(3, '0');
+        const vencimentoStr = dupMatch[2];
+        const valor = parseFloat(dupMatch[3].replace(/\./g, '').replace(',', '.'));
+        
+        if (vencimentoStr.includes('/') || vencimentoStr.includes('\\')) {
+          const dateParts = vencimentoStr.split(/[\/\\]/);
+          if (dateParts.length === 3) {
+            const vencimento = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+            duplicatas.push({ numero, vencimento, valor });
+          }
         }
       }
     }
 
     const resultado = {
-      numeroNota: numeroNotaMatch ? numeroNotaMatch[1] : 'SEM NÚMERO',
+      numeroNota: numeroNotaMatch ? numeroNotaMatch[1] : 'SEM_NUMERO',
       serie: serieMatch ? serieMatch[1] : '1',
-      dataEmissao: dataEmissaoMatch ? dataEmissaoMatch[1].split('/').reverse().join('-') : new Date().toISOString().split('T')[0],
+      dataEmissao: dataEmissaoMatch ? dataEmissaoMatch[1].split(/[\/\-]/).reverse().join('-') : new Date().toISOString().split('T')[0],
       chaveAcesso: chaveAcessoMatch ? chaveAcessoMatch[1].replace(/\s/g, '') : null,
       emitenteNome: emitenteMatch ? emitenteMatch[1].trim() : 'NÃO IDENTIFICADO',
       emitenteCnpj: emitenteCnpjMatch ? emitenteCnpjMatch[1].replace(/[^\d]/g, '') : '',
       destinatarioNome: destinatarioMatch ? destinatarioMatch[1].trim() : 'NÃO IDENTIFICADO',
-      destinatarioCnpj: destCnpjMatch && destCnpjMatch[1] ? destCnpjMatch[1].replace(/[^\d]/g, '') : '',
+      destinatarioCnpj: destCnpj.replace(/[^\d]/g, ''),
       valorTotal: valorTotalMatch ? parseFloat(valorTotalMatch[1].replace(/\./g, '').replace(',', '.')) : 0,
       duplicatas: duplicatas
     };
 
-    // Se não encontrou duplicatas, criar uma com vencimento em 30 dias
+    console.log('Dados extraídos do PDF:', resultado);
+
+    // Se não encontrou duplicatas e tem valor total, criar duplicata padrão
     if (resultado.duplicatas.length === 0 && resultado.valorTotal > 0) {
       const vencimento30dias = new Date();
       vencimento30dias.setDate(vencimento30dias.getDate() + 30);
@@ -200,12 +221,13 @@ async function extrairDadosPDF(pdfBuffer) {
         vencimento: vencimento30dias.toISOString().split('T')[0],
         valor: resultado.valorTotal
       });
+      console.log('Criada duplicata padrão (venc. 30 dias)');
     }
 
     return resultado;
   } catch (error) {
     console.error('Erro ao processar PDF:', error);
-    throw new Error('Erro ao processar PDF: ' + error.message);
+    throw new Error(`Erro ao processar PDF: ${error.message}. Certifique-se de que é um PDF válido de NF-e.`);
   }
 }
 
