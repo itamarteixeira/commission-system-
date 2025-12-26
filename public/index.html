@@ -605,7 +605,44 @@
 
     <script>
         let titulosSelecionados = [];
+        let titulosEditaveis = [];
         let dadosXMLPreview = null;
+        let tipoArquivoSelecionado = 'xml';
+
+        // Função para selecionar tipo de arquivo (XML ou PDF)
+        function selecionarTipo(tipo) {
+            tipoArquivoSelecionado = tipo;
+            
+            const btnXml = document.getElementById('btnXml');
+            const btnPdf = document.getElementById('btnPdf');
+            
+            // Resetar estilos
+            btnXml.style.borderColor = '#e0e0e0';
+            btnXml.style.background = 'white';
+            btnXml.style.color = '#666';
+            
+            btnPdf.style.borderColor = '#e0e0e0';
+            btnPdf.style.background = 'white';
+            btnPdf.style.color = '#666';
+            
+            // Aplicar estilo ativo
+            if (tipo === 'xml') {
+                btnXml.style.borderColor = '#667eea';
+                btnXml.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                btnXml.style.color = 'white';
+                document.getElementById('labelArquivo').textContent = 'Arquivo XML da NF-e *';
+            } else {
+                btnPdf.style.borderColor = '#667eea';
+                btnPdf.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                btnPdf.style.color = 'white';
+                document.getElementById('labelArquivo').textContent = 'Arquivo PDF da NF-e *';
+            }
+            
+            // Limpar arquivo selecionado
+            document.getElementById('xmlFile').value = '';
+            document.getElementById('previewSection').style.display = 'none';
+            document.getElementById('importMessage').innerHTML = '';
+        }
 
         // Navegação entre abas
         function showTab(tabName) {
@@ -634,6 +671,19 @@
                 return;
             }
 
+            // Se for PDF, não fazer preview (só vai processar no servidor)
+            if (file.name.toLowerCase().endsWith('.pdf')) {
+                document.getElementById('previewSection').style.display = 'none';
+                document.getElementById('importMessage').innerHTML = `
+                    <div class="message" style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; border-radius: 8px;">
+                        📑 Arquivo PDF selecionado: <strong>${file.name}</strong><br>
+                        <small>O sistema irá extrair os dados automaticamente ao importar.</small>
+                    </div>
+                `;
+                return;
+            }
+
+            // Continuar com preview de XML
             try {
                 const text = await file.text();
                 const parser = new DOMParser();
@@ -793,40 +843,66 @@
             document.getElementById('titulosGerados').style.display = 'none';
 
             try {
-                const response = await fetch('/api/importar-xml', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    document.getElementById('importMessage').innerHTML = `
-                        <div class="message message-success">
-                            ✅ ${data.message}<br>
-                            ${data.quantidadeTitulos} título(s) de comissão gerado(s)
-                        </div>
-                    `;
+                // Determinar endpoint baseado no tipo de arquivo
+                const isPdf = fileInput.files[0].name.toLowerCase().endsWith('.pdf');
+                const endpoint = isPdf ? '/api/importar-pdf' : '/api/importar-xml';
+                
+                // Se for PDF, mudar o nome do campo no FormData
+                if (isPdf) {
+                    const percentualComissao = formData.get('percentualComissao');
+                    const pdfFile = fileInput.files[0];
                     
-                    // Mostrar títulos gerados se houver
-                    if (data.titulos && data.titulos.length > 0) {
-                        exibirTitulosGerados(data.titulos);
-                    }
+                    const newFormData = new FormData();
+                    newFormData.append('pdfFile', pdfFile);
+                    newFormData.append('percentualComissao', percentualComissao);
                     
-                    document.getElementById('importForm').reset();
-                    document.getElementById('previewSection').style.display = 'none';
-                    loadDashboard();
+                    const response = await fetch(endpoint, {
+                        method: 'POST',
+                        body: newFormData
+                    });
+                    
+                    const data = await response.json();
+                    handleResponse(response, data);
                 } else {
-                    document.getElementById('importMessage').innerHTML = `
-                        <div class="message message-error">
-                            ❌ ${data.error}
-                        </div>
-                    `;
+                    const response = await fetch(endpoint, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    handleResponse(response, data);
+                }
+                
+                function handleResponse(response, data) {
+                    if (response.ok) {
+                        document.getElementById('importMessage').innerHTML = `
+                            <div class="message message-success">
+                                ✅ ${data.message}<br>
+                                ${data.quantidadeTitulos} título(s) de comissão gerado(s)
+                            </div>
+                        `;
+                        
+                        // Mostrar títulos gerados se houver
+                        if (data.titulos && data.titulos.length > 0) {
+                            exibirTitulosGerados(data.titulos);
+                        }
+                        
+                        document.getElementById('importForm').reset();
+                        document.getElementById('previewSection').style.display = 'none';
+                        selecionarTipo('xml'); // Resetar para XML
+                        loadDashboard();
+                    } else {
+                        document.getElementById('importMessage').innerHTML = `
+                            <div class="message message-error">
+                                ❌ ${data.error}
+                            </div>
+                        `;
+                    }
                 }
             } catch (error) {
                 document.getElementById('importMessage').innerHTML = `
                     <div class="message message-error">
-                        ❌ Erro ao importar XML: ${error.message}
+                        ❌ Erro ao importar: ${error.message}
                     </div>
                 `;
             } finally {
@@ -836,7 +912,6 @@
         });
 
         // Exibir títulos gerados após importação
-        let titulosEditaveis = [];
         
         function exibirTitulosGerados(titulos) {
             titulosEditaveis = titulos.map(t => ({
