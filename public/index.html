@@ -843,7 +843,7 @@
             if (tabName === 'notas') loadNotas();
         }
 
-        // Pré-visualizar dados do XML
+        // Pré-visualizar dados do arquivo (XML ou PDF)
         document.getElementById('xmlFile').addEventListener('change', async function(event) {
             const file = event.target.files[0];
             if (!file) {
@@ -851,15 +851,83 @@
                 return;
             }
 
-            // Se for PDF, não fazer preview (só vai processar no servidor)
+            // Se for PDF, fazer preview via API
             if (file.name.toLowerCase().endsWith('.pdf')) {
-                document.getElementById('previewSection').style.display = 'none';
-                document.getElementById('importMessage').innerHTML = `
-                    <div class="message" style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; border-radius: 8px;">
-                        📑 Arquivo PDF selecionado: <strong>${file.name}</strong><br>
-                        <small>O sistema irá extrair os dados automaticamente ao importar.</small>
-                    </div>
-                `;
+                try {
+                    document.getElementById('importMessage').innerHTML = `
+                        <div class="message" style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; border-radius: 8px;">
+                            ⏳ Processando PDF... Por favor aguarde.
+                        </div>
+                    `;
+                    
+                    const formData = new FormData();
+                    formData.append('pdfFile', file);
+                    
+                    const response = await fetch('/api/preview-pdf', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (response.ok && result.success) {
+                        const dados = result.dados;
+                        
+                        // Armazenar dados do PDF
+                        dadosXMLPreview = {
+                            numeroNota: dados.numeroNota,
+                            serie: dados.serie,
+                            dataEmissao: dados.dataEmissao,
+                            emitenteNome: dados.emitenteNome,
+                            clienteNome: dados.destinatarioNome,
+                            valorTotal: dados.valorTotal,
+                            duplicatas: dados.duplicatas
+                        };
+                        
+                        // Exibir preview
+                        document.getElementById('previewNumero').textContent = dados.numeroNota;
+                        document.getElementById('previewSerie').textContent = dados.serie;
+                        document.getElementById('previewEmitente').textContent = dados.emitenteNome;
+                        document.getElementById('previewCliente').textContent = dados.destinatarioNome || 'Não informado';
+                        document.getElementById('previewDataEmissao').textContent = formatDate(dados.dataEmissao);
+                        document.getElementById('previewValor').textContent = formatCurrency(dados.valorTotal);
+                        
+                        // Exibir duplicatas
+                        if (dados.duplicatas && dados.duplicatas.length > 0) {
+                            let dupHtml = '';
+                            dados.duplicatas.forEach((dup) => {
+                                dupHtml += `
+                                    <div class="duplicata-item">
+                                        <span class="duplicata-numero">Duplicata ${dup.numero}</span>
+                                        <span>${formatDate(dup.vencimento)}</span>
+                                        <span class="duplicata-valor">${formatCurrency(dup.valor)}</span>
+                                    </div>
+                                `;
+                            });
+                            document.getElementById('duplicatasList').innerHTML = dupHtml;
+                        } else {
+                            document.getElementById('duplicatasList').innerHTML = '<p style="color: #999; font-size: 14px;">⚠️ Nenhuma duplicata encontrada. Será criada uma duplicata padrão com valor total.</p>';
+                        }
+                        
+                        document.getElementById('previewSection').style.display = 'block';
+                        document.getElementById('importMessage').innerHTML = `
+                            <div class="message message-success">
+                                ✅ PDF processado com sucesso! Confira os dados abaixo antes de importar.
+                            </div>
+                        `;
+                    } else {
+                        throw new Error(result.error || 'Erro ao processar PDF');
+                    }
+                } catch (error) {
+                    console.error('Erro ao processar PDF:', error);
+                    document.getElementById('previewSection').style.display = 'none';
+                    document.getElementById('importMessage').innerHTML = `
+                        <div class="message message-error">
+                            ❌ Erro ao processar PDF: ${error.message}<br>
+                            <small>Verifique se é um PDF válido de NF-e.</small>
+                        </div>
+                    `;
+                }
                 return;
             }
 
