@@ -445,8 +445,24 @@
                 
                 <form id="importForm">
                     <div class="form-group">
-                        <label for="xmlFile">Arquivo XML da NF-e *</label>
-                        <input type="file" id="xmlFile" name="xmlFile" accept=".xml" required>
+                        <label>Tipo de Arquivo *</label>
+                        <div class="tipo-arquivo-selector" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                            <div class="tipo-arquivo-btn active" id="btnXml" onclick="selecionarTipo('xml')">
+                                <span style="font-size: 32px; display: block; margin-bottom: 10px;">📄</span>
+                                <strong>XML</strong>
+                                <div style="font-size: 12px; color: #999; margin-top: 5px;">Arquivo NFnão</div>
+                            </div>
+                            <div class="tipo-arquivo-btn" id="btnPdf" onclick="selecionarTipo('pdf')">
+                                <span style="font-size: 32px; display: block; margin-bottom: 10px;">📑</span>
+                                <strong>PDF</strong>
+                                <div style="font-size: 12px; color: #999; margin-top: 5px;">Documento digitalizado</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="xmlFile" id="labelArquivo">Arquivo XML da NF-e *</label>
+                        <input type="file" id="xmlFile" name="xmlFile" accept=".xml,.pdf" required>
                     </div>
 
                     <!-- Pré-visualização dos dados -->
@@ -598,6 +614,48 @@
                 <div class="actions">
                     <button type="button" class="btn-secondary" onclick="fecharModalPedido()">Cancelar</button>
                     <button type="submit">Criar Pedido</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Editar Título -->
+    <div id="modalEditarTitulo" class="modal">
+        <div class="modal-content">
+            <h2>✏️ Editar Título</h2>
+            
+            <form id="formEditarTitulo" onsubmit="salvarEdicaoTitulo(event)">
+                <input type="hidden" id="editTituloId">
+                
+                <div class="info-grid">
+                    <div class="info-item">
+                        <label>Número da Nota</label>
+                        <div class="value" id="editNumeroNota"></div>
+                    </div>
+                    <div class="info-item">
+                        <label>Parcela</label>
+                        <div class="value" id="editParcela"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="editValorComissao">Valor da Comissão (R$) *</label>
+                    <input type="number" id="editValorComissao" step="0.01" min="0" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="editStatusPagamento">Status de Pagamento *</label>
+                    <select id="editStatusPagamento" required>
+                        <option value="pendente">Pendente</option>
+                        <option value="pago">Pago</option>
+                        <option value="atrasado">Atrasado</option>
+                        <option value="cancelado">Cancelado</option>
+                    </select>
+                </div>
+
+                <div class="action-buttons">
+                    <button type="button" class="btn-secondary" onclick="fecharModalEditarTitulo()">Cancelar</button>
+                    <button type="submit" class="btn-success">💾 Salvar Alterações</button>
                 </div>
             </form>
         </div>
@@ -1040,12 +1098,16 @@
                                     </th>
                                     <th>Título</th>
                                     <th>Emitente</th>
+                                    <th>Cliente</th>
                                     <th>Duplicata</th>
-                                    <th>Valor Duplicata</th>
-                                    <th>% Comissão</th>
+                                    <th>Valor Dup.</th>
+                                    <th>% Com.</th>
                                     <th>Valor Comissão</th>
                                     <th>Vencimento</th>
+                                    <th>Previsão Receb.</th>
+                                    <th>Status Pgto</th>
                                     <th>Status</th>
+                                    <th>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1066,15 +1128,33 @@
                                 </td>
                                 <td class="titulo-parcela">${tituloFormatado}</td>
                                 <td>${titulo.emitente_nome}</td>
+                                <td>${titulo.cliente_nome || 'N/A'}</td>
                                 <td>${titulo.numero_duplicata}</td>
                                 <td>${formatCurrency(titulo.valor_duplicata)}</td>
                                 <td>${titulo.percentual_comissao}%</td>
                                 <td class="valor-destaque">${formatCurrency(titulo.valor_comissao)}</td>
                                 <td>${formatDate(titulo.vencimento)}</td>
+                                <td>${formatDate(titulo.previsao_recebimento)}</td>
+                                <td>
+                                    <select class="badge badge-${titulo.status_pagamento || 'pendente'}" 
+                                            style="border: none; cursor: pointer; padding: 5px 10px;"
+                                            onchange="atualizarStatusPagamento(${titulo.id}, this.value)"
+                                            ${disabled}>
+                                        <option value="pendente" ${(titulo.status_pagamento || 'pendente') === 'pendente' ? 'selected' : ''}>Pendente</option>
+                                        <option value="pago" ${titulo.status_pagamento === 'pago' ? 'selected' : ''}>Pago</option>
+                                        <option value="atrasado" ${titulo.status_pagamento === 'atrasado' ? 'selected' : ''}>Atrasado</option>
+                                        <option value="cancelado" ${titulo.status_pagamento === 'cancelado' ? 'selected' : ''}>Cancelado</option>
+                                    </select>
+                                </td>
                                 <td>
                                     <span class="badge badge-${titulo.status}">
                                         ${formatStatus(titulo.status)}
                                     </span>
+                                </td>
+                                <td class="table-actions">
+                                    <button class="btn-small btn-info" onclick="editarTitulo(${titulo.id})" title="Editar">
+                                        ✏️
+                                    </button>
                                 </td>
                             </tr>
                         `;
@@ -1327,6 +1407,7 @@
                                     <th>Valor Total</th>
                                     <th>Data Emissão</th>
                                     <th>Data Importação</th>
+                                    <th>Ações</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1342,6 +1423,11 @@
                                 <td class="valor-destaque">${formatCurrency(nota.valor_total)}</td>
                                 <td>${formatDate(nota.data_emissao)}</td>
                                 <td>${formatDateTime(nota.data_importacao)}</td>
+                                <td class="table-actions">
+                                    <button class="btn-small btn-danger" onclick="excluirNota(${nota.id})" title="Excluir">
+                                        🗑️
+                                    </button>
+                                </td>
                             </tr>
                         `;
                     });
@@ -1399,6 +1485,150 @@
                 'fechado': 'Fechado'
             };
             return statusMap[status] || status;
+        }
+
+        // ========== NOVAS FUNÇÕES ==========
+        
+        let tipoArquivoSelecionado = 'xml';
+        
+        // Selecionar tipo de arquivo (XML ou PDF)
+        function selecionarTipo(tipo) {
+            tipoArquivoSelecionado = tipo;
+            
+            // Atualizar botões
+            document.getElementById('btnXml').classList.remove('active');
+            document.getElementById('btnPdf').classList.remove('active');
+            document.getElementById(`btn${tipo.charAt(0).toUpperCase() + tipo.slice(1)}`).classList.add('active');
+            
+            // Atualizar label e accept
+            if (tipo === 'xml') {
+                document.getElementById('labelArquivo').textContent = 'Arquivo XML da NF-e *';
+                document.getElementById('xmlFile').accept = '.xml';
+            } else {
+                document.getElementById('labelArquivo').textContent = 'Arquivo PDF da NF-e *';
+                document.getElementById('xmlFile').accept = '.pdf';
+            }
+            
+            // Limpar arquivo selecionado
+            document.getElementById('xmlFile').value = '';
+            document.getElementById('previewSection').style.display = 'none';
+        }
+        
+        // Editar título individual
+        async function editarTitulo(id) {
+            try {
+                const response = await fetch(`/api/titulos-comissao/${id}`);
+                const titulo = await response.json();
+                
+                // Preencher modal
+                document.getElementById('editTituloId').value = titulo.id;
+                document.getElementById('editNumeroNota').textContent = titulo.numero_nota;
+                document.getElementById('editParcela').textContent = titulo.numero_duplicata;
+                document.getElementById('editValorComissao').value = titulo.valor_comissao;
+                document.getElementById('editStatusPagamento').value = titulo.status_pagamento || 'pendente';
+                
+                // Mostrar modal
+                document.getElementById('modalEditarTitulo').classList.add('active');
+            } catch (error) {
+                alert('Erro ao carregar título: ' + error.message);
+            }
+        }
+        
+        function fecharModalEditarTitulo() {
+            document.getElementById('modalEditarTitulo').classList.remove('active');
+        }
+        
+        async function salvarEdicaoTitulo(event) {
+            event.preventDefault();
+            
+            const id = document.getElementById('editTituloId').value;
+            const valorComissao = parseFloat(document.getElementById('editValorComissao').value);
+            const statusPagamento = document.getElementById('editStatusPagamento').value;
+            
+            try {
+                const response = await fetch(`/api/titulos-comissao/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ valorComissao, statusPagamento })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert('✅ Título atualizado com sucesso!');
+                    fecharModalEditarTitulo();
+                    loadTitulos();
+                    loadDashboard();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('Erro: ' + error.message);
+            }
+        }
+        
+        // Atualizar status de pagamento diretamente
+        async function atualizarStatusPagamento(id, novoStatus) {
+            try {
+                const response = await fetch(`/api/titulos-comissao/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ statusPagamento: novoStatus })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // Atualizar apenas visualmente, sem recarregar
+                    console.log('Status atualizado');
+                    loadDashboard();
+                } else {
+                    alert('❌ ' + data.error);
+                    loadTitulos(); // Recarregar para reverter
+                }
+            } catch (error) {
+                alert('Erro: ' + error.message);
+                loadTitulos();
+            }
+        }
+        
+        // Excluir nota fiscal
+        async function excluirNota(id) {
+            if (!confirm('⚠️ Deseja realmente excluir esta nota fiscal?\\n\\nTodos os títulos vinculados também serão excluídos!')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/notas-fiscais/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    alert('✅ Nota fiscal excluída com sucesso!');
+                    loadNotas();
+                    loadDashboard();
+                    loadTitulos();
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('Erro: ' + error.message);
+            }
+        }
+        
+        // Limpar formulário após salvar
+        function fecharTitulosGerados() {
+            // Limpar formulário completamente
+            document.getElementById('importForm').reset();
+            document.getElementById('previewSection').style.display = 'none';
+            document.getElementById('titulosGerados').style.display = 'none';
+            document.getElementById('importMessage').innerHTML = '';
+            titulosEditaveis = [];
+            
+            // Resetar tipo de arquivo para XML
+            selecionarTipo('xml');
         }
 
         // Carregar dashboard ao iniciar
