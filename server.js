@@ -489,7 +489,38 @@ app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
   }
 });
 
-// Rota para importar PDF
+// Rota para fazer preview do PDF (não salva no banco)
+app.post('/api/preview-pdf', upload.single('pdfFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    }
+
+    // Ler arquivo PDF
+    const pdfBuffer = fs.readFileSync(req.file.path);
+    
+    // Extrair dados
+    const dados = await extrairDadosPDF(pdfBuffer);
+    
+    // Deletar arquivo temporário
+    fs.unlinkSync(req.file.path);
+    
+    // Retornar dados extraídos para preview
+    res.json({
+      success: true,
+      dados: dados
+    });
+    
+  } catch (error) {
+    console.error('Erro ao fazer preview do PDF:', error);
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({ error: 'Erro ao processar PDF: ' + error.message });
+  }
+});
+
+// Rota para importar PDF (agora recebe dados já extraídos)
 app.post('/api/importar-pdf', upload.single('pdfFile'), async (req, res) => {
   try {
     if (!req.file) {
