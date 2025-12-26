@@ -3,6 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const xml2js = require('xml2js');
+const pdfParse = require('pdf-parse');
 const sqlite3 = require('sqlite3').verbose();
 
 const app = express();
@@ -123,6 +124,88 @@ function calcularPrevisaoRecebimento(vencimento) {
     return mesProximo.toISOString().split('T')[0];
   } catch (error) {
     return null;
+  }
+}
+
+// Função para extrair dados do PDF da NF-e
+async function extrairDadosPDF(pdfBuffer) {
+  try {
+    const data = await pdfParse(pdfBuffer);
+    const text = data.text;
+
+    // Extrair informações usando regex
+    const numeroNotaMatch = text.match(/(?:NOTA FISCAL|NF-e|N[ºª])\s*[\s:]*(\d{6,})/i);
+    const serieMatch = text.match(/(?:S[ÉE]RIE|SERIE)\s*[\s:]*(\d+)/i);
+    const dataEmissaoMatch = text.match(/(?:EMISS[ÃA]O|DATA\s*EMISS[ÃA]O)\s*[\s:]*(\d{2}\/\d{2}\/\d{4})/i);
+    const chaveAcessoMatch = text.match(/(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})/);
+    
+    // Emitente (normalmente aparece primeiro)
+    const emitenteMatch = text.match(/(?:RAZ[ÃA]O\s*SOCIAL|EMITENTE)[:\s]*([^\n]{10,100})/i);
+    const emitenteCnpjMatch = text.match(/(?:CNPJ|CPF)[:\s]*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/i);
+    
+    // Destinatário
+    const destinatarioMatch = text.match(/(?:DESTINAT[ÁA]RIO|CLIENTE)[:\s]*([^\n]{10,100})/i);
+    const destCnpjMatch = text.match(/(?:CNPJ|CPF)(?:\/CPF)?[:\s]*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/gi);
+    
+    // Valor total
+    const valorTotalMatch = text.match(/(?:VALOR\s*TOTAL|TOTAL\s*DA\s*NOTA)[:\s]*R?\$?\s*([\d.,]+)/i);
+    
+    // Duplicatas - procurar padrões como "001 15/01/2024 R$ 1.000,00"
+    const duplicatasRegex = /(\d{3}|\d{2}\/\d{3})\s+(\d{2}\/\d{2}\/\d{4})\s+R?\$?\s*([\d.,]+)/gi;
+    const duplicatas = [];
+    let dupMatch;
+    
+    while ((dupMatch = duplicatasRegex.exec(text)) !== null) {
+      duplicatas.push({
+        numero: dupMatch[1].replace('/', ''),
+        vencimento: dupMatch[2].split('/').reverse().join('-'), // Converter para YYYY-MM-DD
+        valor: parseFloat(dupMatch[3].replace(/\./g, '').replace(',', '.'))
+      });
+    }
+
+    // Se não encontrou duplicatas pelo padrão acima, tentar outro formato
+    if (duplicatas.length === 0) {
+      const dupRegex2 = /(?:DUPLICATA|PARC)[:\s]*(\d+)[^\d]*([\d\/]+)[^\d]*([\d.,]+)/gi;
+      while ((dupMatch = dupRegex2.exec(text)) !== null) {
+        const vencimento = dupMatch[2].includes('/') ? dupMatch[2].split('/').reverse().join('-') : null;
+        if (vencimento) {
+          duplicatas.push({
+            numero: dupMatch[1].padStart(3, '0'),
+            vencimento: vencimento,
+            valor: parseFloat(dupMatch[3].replace(/\./g, '').replace(',', '.'))
+          });
+        }
+      }
+    }
+
+    const resultado = {
+      numeroNota: numeroNotaMatch ? numeroNotaMatch[1] : 'SEM NÚMERO',
+      serie: serieMatch ? serieMatch[1] : '1',
+      dataEmissao: dataEmissaoMatch ? dataEmissaoMatch[1].split('/').reverse().join('-') : new Date().toISOString().split('T')[0],
+      chaveAcesso: chaveAcessoMatch ? chaveAcessoMatch[1].replace(/\s/g, '') : null,
+      emitenteNome: emitenteMatch ? emitenteMatch[1].trim() : 'NÃO IDENTIFICADO',
+      emitenteCnpj: emitenteCnpjMatch ? emitenteCnpjMatch[1].replace(/[^\d]/g, '') : '',
+      destinatarioNome: destinatarioMatch ? destinatarioMatch[1].trim() : 'NÃO IDENTIFICADO',
+      destinatarioCnpj: destCnpjMatch && destCnpjMatch[1] ? destCnpjMatch[1].replace(/[^\d]/g, '') : '',
+      valorTotal: valorTotalMatch ? parseFloat(valorTotalMatch[1].replace(/\./g, '').replace(',', '.')) : 0,
+      duplicatas: duplicatas
+    };
+
+    // Se não encontrou duplicatas, criar uma com vencimento em 30 dias
+    if (resultado.duplicatas.length === 0 && resultado.valorTotal > 0) {
+      const vencimento30dias = new Date();
+      vencimento30dias.setDate(vencimento30dias.getDate() + 30);
+      resultado.duplicatas.push({
+        numero: '001',
+        vencimento: vencimento30dias.toISOString().split('T')[0],
+        valor: resultado.valorTotal
+      });
+    }
+
+    return resultado;
+  } catch (error) {
+    console.error('Erro ao processar PDF:', error);
+    throw new Error('Erro ao processar PDF: ' + error.message);
   }
 }
 
@@ -293,6 +376,130 @@ app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
         }
       );
     });
+  } catch (error) {
+    if (req.file) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Rota para importar PDF
+app.post('/api/importar-pdf', upload.single('pdfFile'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    }
+
+    const percentualComissao = parseFloat(req.body.percentualComissao);
+    
+    if (!percentualComissao || percentualComissao <= 0 || percentualComissao > 100) {
+      return res.status(400).json({ error: 'Percentual de comissão inválido' });
+    }
+
+    // Ler arquivo PDF
+    const pdfBuffer = fs.readFileSync(req.file.path);
+    
+    // Extrair dados
+    const dados = await extrairDadosPDF(pdfBuffer);
+
+    // Verificar se nota já existe (se tiver chave de acesso)
+    if (dados.chaveAcesso) {
+      db.get('SELECT id FROM notas_fiscais WHERE chave_acesso = ?', [dados.chaveAcesso], (err, row) => {
+        if (row) {
+          fs.unlinkSync(req.file.path);
+          return res.status(400).json({ error: 'Nota fiscal já importada' });
+        }
+        salvarNotaPDF();
+      });
+    } else {
+      salvarNotaPDF();
+    }
+
+    function salvarNotaPDF() {
+      // Inserir nota fiscal
+      db.run(`INSERT INTO notas_fiscais 
+        (numero_nota, serie, data_emissao, chave_acesso, emitente_nome, emitente_cnpj, 
+         destinatario_nome, destinatario_cnpj, valor_total, xml_completo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [dados.numeroNota, dados.serie, dados.dataEmissao, dados.chaveAcesso,
+         dados.emitenteNome, dados.emitenteCnpj, dados.destinatarioNome,
+         dados.destinatarioCnpj, dados.valorTotal, 'PDF_IMPORT'],
+        function(err) {
+          if (err) {
+            fs.unlinkSync(req.file.path);
+            return res.status(500).json({ error: 'Erro ao salvar nota fiscal' });
+          }
+
+          const notaFiscalId = this.lastID;
+
+          // Inserir duplicatas e títulos de comissão
+          const promises = dados.duplicatas.map(dup => {
+            return new Promise((resolve, reject) => {
+              const previsaoRecebimento = calcularPrevisaoRecebimento(dup.vencimento);
+              
+              db.run(`INSERT INTO duplicatas (nota_fiscal_id, numero_duplicata, valor, vencimento, previsao_recebimento)
+                      VALUES (?, ?, ?, ?, ?)`,
+                [notaFiscalId, dup.numero, dup.valor, dup.vencimento, previsaoRecebimento],
+                function(err) {
+                  if (err) return reject(err);
+                  
+                  const duplicataId = this.lastID;
+                  const valorComissao = (dup.valor * percentualComissao) / 100;
+
+                  db.run(`INSERT INTO titulos_comissao 
+                          (duplicata_id, nota_fiscal_id, percentual_comissao, valor_comissao, status_pagamento)
+                          VALUES (?, ?, ?, ?, 'pendente')`,
+                    [duplicataId, notaFiscalId, percentualComissao, valorComissao],
+                    (err) => {
+                      if (err) return reject(err);
+                      resolve();
+                    }
+                  );
+                }
+              );
+            });
+          });
+
+          Promise.all(promises)
+            .then(() => {
+              // Buscar os títulos criados
+              db.all(`
+                SELECT 
+                  tc.id,
+                  tc.valor_comissao,
+                  tc.percentual_comissao,
+                  tc.status_pagamento,
+                  nf.numero_nota,
+                  nf.destinatario_nome as cliente_nome,
+                  d.numero_duplicata,
+                  d.valor as valor_duplicata,
+                  d.vencimento,
+                  d.previsao_recebimento
+                FROM titulos_comissao tc
+                JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
+                JOIN duplicatas d ON tc.duplicata_id = d.id
+                WHERE tc.nota_fiscal_id = ?
+                ORDER BY d.numero_duplicata
+              `, [notaFiscalId], (err, titulos) => {
+                fs.unlinkSync(req.file.path);
+                
+                res.json({ 
+                  success: true, 
+                  message: 'PDF importado com sucesso',
+                  notaFiscalId: notaFiscalId,
+                  quantidadeTitulos: dados.duplicatas.length,
+                  titulos: titulos || []
+                });
+              });
+            })
+            .catch(error => {
+              fs.unlinkSync(req.file.path);
+              res.status(500).json({ error: 'Erro ao criar títulos de comissão' });
+            });
+        }
+      );
+    }
   } catch (error) {
     if (req.file) {
       fs.unlinkSync(req.file.path);
