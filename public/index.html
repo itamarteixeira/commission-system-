@@ -291,13 +291,6 @@
             color: #999;
         }
 
-        .empty-state svg {
-            width: 80px;
-            height: 80px;
-            margin-bottom: 20px;
-            opacity: 0.3;
-        }
-
         .actions {
             display: flex;
             gap: 10px;
@@ -333,6 +326,71 @@
             font-size: 16px;
             color: #333;
             font-weight: 600;
+        }
+
+        .preview-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .preview-section h3 {
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+
+        .duplicata-item {
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .duplicata-item span {
+            font-size: 14px;
+        }
+
+        .duplicata-numero {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .duplicata-valor {
+            font-weight: 600;
+        }
+
+        .editable-value {
+            width: 120px;
+            padding: 8px 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            text-align: right;
+            transition: all 0.3s;
+        }
+
+        .editable-value:focus {
+            outline: none;
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .editable-value.changed {
+            border-color: #f39c12;
+            background: #fff9e6;
+        }
+
+        .titulo-parcela {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 14px;
         }
     </style>
 </head>
@@ -384,15 +442,51 @@
                 
                 <div id="importMessage"></div>
                 
-                <form id="importForm" onsubmit="importarXML(event)">
+                <form id="importForm">
                     <div class="form-group">
                         <label for="xmlFile">Arquivo XML da NF-e *</label>
-                        <input type="file" id="xmlFile" accept=".xml" required>
+                        <input type="file" id="xmlFile" name="xmlFile" accept=".xml" required>
+                    </div>
+
+                    <!-- Pré-visualização dos dados -->
+                    <div id="previewSection" class="preview-section" style="display: none;">
+                        <h3>📋 Dados da Nota Fiscal</h3>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <label>Número da Nota</label>
+                                <div class="value" id="previewNumero">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Série</label>
+                                <div class="value" id="previewSerie">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Emitente (Fornecedor)</label>
+                                <div class="value" id="previewEmitente">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Cliente</label>
+                                <div class="value" id="previewCliente">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Data de Emissão</label>
+                                <div class="value" id="previewDataEmissao">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Valor Total</label>
+                                <div class="value valor-destaque" id="previewValor">R$ 0,00</div>
+                            </div>
+                        </div>
+                        
+                        <div id="previewDuplicatas" style="margin-top: 15px;">
+                            <h4 style="margin-bottom: 10px; color: #555;">💳 Duplicatas</h4>
+                            <div id="duplicatasList"></div>
+                        </div>
                     </div>
 
                     <div class="form-group">
                         <label for="percentualComissao">Percentual de Comissão (%) *</label>
-                        <input type="number" id="percentualComissao" step="0.01" min="0.01" max="100" required placeholder="Ex: 5.00">
+                        <input type="number" id="percentualComissao" name="percentualComissao" step="0.01" min="0.01" max="100" required placeholder="Ex: 5.00" value="5.00">
                     </div>
 
                     <button type="submit" id="btnImportar">
@@ -402,6 +496,20 @@
 
                 <div class="loading" id="importLoading">
                     <p>⏳ Processando XML...</p>
+                </div>
+
+                <!-- Títulos gerados após importação -->
+                <div id="titulosGerados" style="display: none; margin-top: 30px;">
+                    <h3 style="color: #667eea; margin-bottom: 20px;">✅ Títulos de Comissão Gerados</h3>
+                    <p style="color: #666; margin-bottom: 15px;">
+                        Você pode ajustar os valores de comissão antes de criar o pedido. 
+                        Os campos são editáveis para arredondamentos ou correções.
+                    </p>
+                    <div id="titulosGeradosTable"></div>
+                    <div class="actions">
+                        <button onclick="salvarAlteracoesTitulos()">💾 Salvar Alterações</button>
+                        <button class="btn-secondary" onclick="fecharTitulosGerados()">Fechar</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -496,6 +604,7 @@
 
     <script>
         let titulosSelecionados = [];
+        let dadosXMLPreview = null;
 
         // Navegação entre abas
         function showTab(tabName) {
@@ -514,6 +623,356 @@
             if (tabName === 'titulos') loadTitulos();
             if (tabName === 'pedidos') loadPedidos();
             if (tabName === 'notas') loadNotas();
+        }
+
+        // Pré-visualizar dados do XML
+        document.getElementById('xmlFile').addEventListener('change', async function(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                document.getElementById('previewSection').style.display = 'none';
+                return;
+            }
+
+            try {
+                const text = await file.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(text, 'text/xml');
+
+                // Verificar se há erros no parsing
+                const parseError = xmlDoc.querySelector('parsererror');
+                if (parseError) {
+                    throw new Error('XML inválido');
+                }
+
+                // Função auxiliar para buscar tag ignorando namespace
+                const getTagValue = (parent, tagName) => {
+                    // Tenta sem namespace
+                    let element = parent.querySelector(tagName);
+                    if (element) return element.textContent;
+                    
+                    // Tenta com namespace comum (nfe:)
+                    element = parent.querySelector(`nfe\\:${tagName}, ${tagName}`);
+                    if (element) return element.textContent;
+                    
+                    // Busca por nome de tag diretamente (ignora namespace)
+                    const elements = parent.getElementsByTagName(tagName);
+                    if (elements.length > 0) return elements[0].textContent;
+                    
+                    return null;
+                };
+
+                const getElement = (parent, tagName) => {
+                    // Tenta sem namespace
+                    let element = parent.querySelector(tagName);
+                    if (element) return element;
+                    
+                    // Busca por nome de tag diretamente
+                    const elements = parent.getElementsByTagName(tagName);
+                    if (elements.length > 0) return elements[0];
+                    
+                    return null;
+                };
+
+                // Encontrar infNFe (pode estar em diferentes lugares)
+                let infNFe = xmlDoc.getElementsByTagName('infNFe')[0];
+                
+                if (!infNFe) {
+                    throw new Error('Tag infNFe não encontrada no XML');
+                }
+
+                // Extrair IDE (dados da nota)
+                const ide = getElement(infNFe, 'ide');
+                const numero = ide ? getTagValue(ide, 'nNF') || '-' : '-';
+                const serie = ide ? getTagValue(ide, 'serie') || '-' : '-';
+                const dataEmissao = ide ? (getTagValue(ide, 'dhEmi') || getTagValue(ide, 'dEmi') || '-') : '-';
+
+                // Extrair EMIT (emitente)
+                const emit = getElement(infNFe, 'emit');
+                const emitenteNome = emit ? getTagValue(emit, 'xNome') || '-' : '-';
+
+                // Extrair DEST (destinatário)
+                const dest = getElement(infNFe, 'dest');
+                const clienteNome = dest ? getTagValue(dest, 'xNome') || 'Não informado' : 'Não informado';
+
+                // Extrair TOTAL (valores)
+                const total = getElement(infNFe, 'total');
+                let valorTotal = '0';
+                if (total) {
+                    const icmsTot = getElement(total, 'ICMSTot');
+                    valorTotal = icmsTot ? getTagValue(icmsTot, 'vNF') || '0' : '0';
+                }
+
+                // Extrair COBR (cobrança) e duplicatas
+                const duplicatas = [];
+                const cobr = getElement(infNFe, 'cobr');
+                if (cobr) {
+                    const dups = cobr.getElementsByTagName('dup');
+                    for (let i = 0; i < dups.length; i++) {
+                        const dup = dups[i];
+                        const nDup = getTagValue(dup, 'nDup') || `${i + 1}`;
+                        const vDup = getTagValue(dup, 'vDup') || '0';
+                        const dVenc = getTagValue(dup, 'dVenc') || '';
+                        duplicatas.push({ 
+                            numero: nDup, 
+                            valor: parseFloat(vDup), 
+                            vencimento: dVenc 
+                        });
+                    }
+                }
+
+                // Armazenar dados
+                dadosXMLPreview = {
+                    numero, serie, dataEmissao, emitenteNome, clienteNome, 
+                    valorTotal: parseFloat(valorTotal), duplicatas
+                };
+
+                // Exibir preview
+                document.getElementById('previewNumero').textContent = numero;
+                document.getElementById('previewSerie').textContent = serie;
+                document.getElementById('previewEmitente').textContent = emitenteNome;
+                document.getElementById('previewCliente').textContent = clienteNome;
+                document.getElementById('previewDataEmissao').textContent = formatDate(dataEmissao);
+                document.getElementById('previewValor').textContent = formatCurrency(parseFloat(valorTotal));
+
+                // Exibir duplicatas
+                if (duplicatas.length > 0) {
+                    let dupHtml = '';
+                    duplicatas.forEach((dup, index) => {
+                        dupHtml += `
+                            <div class="duplicata-item">
+                                <span class="duplicata-numero">Duplicata ${dup.numero}</span>
+                                <span>${formatDate(dup.vencimento)}</span>
+                                <span class="duplicata-valor">${formatCurrency(dup.valor)}</span>
+                            </div>
+                        `;
+                    });
+                    document.getElementById('duplicatasList').innerHTML = dupHtml;
+                } else {
+                    document.getElementById('duplicatasList').innerHTML = '<p style="color: #999; font-size: 14px;">⚠️ Nenhuma duplicata encontrada no XML</p>';
+                }
+
+                document.getElementById('previewSection').style.display = 'block';
+                document.getElementById('importMessage').innerHTML = `
+                    <div class="message message-success">
+                        ✅ XML lido com sucesso! Confira os dados abaixo antes de importar.
+                    </div>
+                `;
+
+            } catch (error) {
+                console.error('Erro detalhado:', error);
+                document.getElementById('previewSection').style.display = 'none';
+                document.getElementById('importMessage').innerHTML = `
+                    <div class="message message-error">
+                        ❌ Erro ao ler XML: ${error.message}<br>
+                        <small>Verifique se o arquivo é um XML válido de NF-e.</small>
+                    </div>
+                `;
+            }
+        });
+
+        // Importar XML
+        document.getElementById('importForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(this);
+            const fileInput = document.getElementById('xmlFile');
+            
+            if (!fileInput.files[0]) {
+                document.getElementById('importMessage').innerHTML = `
+                    <div class="message message-error">
+                        ❌ Nenhum arquivo selecionado
+                    </div>
+                `;
+                return;
+            }
+            
+            document.getElementById('importLoading').classList.add('active');
+            document.getElementById('btnImportar').disabled = true;
+            document.getElementById('importMessage').innerHTML = '';
+            document.getElementById('titulosGerados').style.display = 'none';
+
+            try {
+                const response = await fetch('/api/importar-xml', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('importMessage').innerHTML = `
+                        <div class="message message-success">
+                            ✅ ${data.message}<br>
+                            ${data.quantidadeTitulos} título(s) de comissão gerado(s)
+                        </div>
+                    `;
+                    
+                    // Mostrar títulos gerados se houver
+                    if (data.titulos && data.titulos.length > 0) {
+                        exibirTitulosGerados(data.titulos);
+                    }
+                    
+                    document.getElementById('importForm').reset();
+                    document.getElementById('previewSection').style.display = 'none';
+                    loadDashboard();
+                } else {
+                    document.getElementById('importMessage').innerHTML = `
+                        <div class="message message-error">
+                            ❌ ${data.error}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('importMessage').innerHTML = `
+                    <div class="message message-error">
+                        ❌ Erro ao importar XML: ${error.message}
+                    </div>
+                `;
+            } finally {
+                document.getElementById('importLoading').classList.remove('active');
+                document.getElementById('btnImportar').disabled = false;
+            }
+        });
+
+        // Exibir títulos gerados após importação
+        let titulosEditaveis = [];
+        
+        function exibirTitulosGerados(titulos) {
+            titulosEditaveis = titulos.map(t => ({
+                id: t.id,
+                valorOriginal: t.valor_comissao,
+                valorAtual: t.valor_comissao
+            }));
+
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Título</th>
+                            <th>Valor Duplicata</th>
+                            <th>% Comissão</th>
+                            <th>Valor Comissão (Editável)</th>
+                            <th>Vencimento</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            const totalParcelas = titulos.length;
+            
+            titulos.forEach((titulo, index) => {
+                const parcelaAtual = index + 1;
+                const tituloFormatado = `${titulo.numero_nota} - ${parcelaAtual}/${totalParcelas}`;
+                
+                html += `
+                    <tr>
+                        <td class="titulo-parcela">${tituloFormatado}</td>
+                        <td>${formatCurrency(titulo.valor_duplicata)}</td>
+                        <td>${titulo.percentual_comissao}%</td>
+                        <td>
+                            <input type="number" 
+                                   class="editable-value" 
+                                   id="valor_${titulo.id}"
+                                   value="${titulo.valor_comissao.toFixed(2)}" 
+                                   step="0.01"
+                                   min="0"
+                                   data-titulo-id="${titulo.id}"
+                                   onchange="marcarAlterado(${titulo.id})"
+                            >
+                        </td>
+                        <td>${formatDate(titulo.vencimento)}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                    <tfoot>
+                        <tr style="background: #f8f9fa; font-weight: bold;">
+                            <td colspan="3" style="text-align: right;">TOTAL:</td>
+                            <td id="totalComissoes" class="valor-destaque">
+                                ${formatCurrency(titulos.reduce((sum, t) => sum + t.valor_comissao, 0))}
+                            </td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            `;
+
+            document.getElementById('titulosGeradosTable').innerHTML = html;
+            document.getElementById('titulosGerados').style.display = 'block';
+            
+            // Scroll suave até os títulos
+            document.getElementById('titulosGerados').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function marcarAlterado(tituloId) {
+            const input = document.getElementById(`valor_${tituloId}`);
+            const tituloEdit = titulosEditaveis.find(t => t.id === tituloId);
+            
+            if (tituloEdit) {
+                tituloEdit.valorAtual = parseFloat(input.value) || 0;
+                
+                // Marcar como alterado se diferente do original
+                if (Math.abs(tituloEdit.valorAtual - tituloEdit.valorOriginal) > 0.01) {
+                    input.classList.add('changed');
+                } else {
+                    input.classList.remove('changed');
+                }
+                
+                // Atualizar total
+                const total = titulosEditaveis.reduce((sum, t) => sum + t.valorAtual, 0);
+                document.getElementById('totalComissoes').textContent = formatCurrency(total);
+            }
+        }
+
+        async function salvarAlteracoesTitulos() {
+            const alterados = titulosEditaveis.filter(t => 
+                Math.abs(t.valorAtual - t.valorOriginal) > 0.01
+            );
+
+            if (alterados.length === 0) {
+                alert('✅ Nenhuma alteração detectada');
+                return;
+            }
+
+            const confirmacao = confirm(`Deseja salvar ${alterados.length} alteração(ões)?`);
+            if (!confirmacao) return;
+
+            let sucessos = 0;
+            let erros = 0;
+
+            for (const titulo of alterados) {
+                try {
+                    const response = await fetch(`/api/titulos-comissao/${titulo.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ valorComissao: titulo.valorAtual })
+                    });
+
+                    if (response.ok) {
+                        sucessos++;
+                        titulo.valorOriginal = titulo.valorAtual;
+                        document.getElementById(`valor_${titulo.id}`).classList.remove('changed');
+                    } else {
+                        erros++;
+                    }
+                } catch (error) {
+                    erros++;
+                }
+            }
+
+            if (erros === 0) {
+                alert(`✅ ${sucessos} alteração(ões) salva(s) com sucesso!`);
+                loadDashboard();
+            } else {
+                alert(`⚠️ ${sucessos} salva(s), ${erros} erro(s)`);
+            }
+        }
+
+        function fecharTitulosGerados() {
+            document.getElementById('titulosGerados').style.display = 'none';
+            titulosEditaveis = [];
         }
 
         // Carregar dashboard
@@ -537,53 +996,6 @@
             }
         }
 
-        // Importar XML
-        async function importarXML(event) {
-            event.preventDefault();
-            
-            const form = event.target;
-            const formData = new FormData(form);
-            
-            document.getElementById('importLoading').classList.add('active');
-            document.getElementById('btnImportar').disabled = true;
-            document.getElementById('importMessage').innerHTML = '';
-
-            try {
-                const response = await fetch('/api/importar-xml', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (response.ok) {
-                    document.getElementById('importMessage').innerHTML = `
-                        <div class="message message-success">
-                            ✅ ${data.message}<br>
-                            ${data.quantidadeTitulos} título(s) de comissão gerado(s)
-                        </div>
-                    `;
-                    form.reset();
-                    loadDashboard();
-                } else {
-                    document.getElementById('importMessage').innerHTML = `
-                        <div class="message message-error">
-                            ❌ ${data.error}
-                        </div>
-                    `;
-                }
-            } catch (error) {
-                document.getElementById('importMessage').innerHTML = `
-                    <div class="message message-error">
-                        ❌ Erro ao importar XML: ${error.message}
-                    </div>
-                `;
-            } finally {
-                document.getElementById('importLoading').classList.remove('active');
-                document.getElementById('btnImportar').disabled = false;
-            }
-        }
-
         // Carregar títulos
         async function loadTitulos() {
             document.getElementById('titulosLoading').classList.add('active');
@@ -600,6 +1012,24 @@
                         </div>
                     `;
                 } else {
+                    // Agrupar por nota fiscal para calcular total de parcelas
+                    const notasMap = {};
+                    titulos.forEach(titulo => {
+                        if (!notasMap[titulo.numero_nota]) {
+                            notasMap[titulo.numero_nota] = [];
+                        }
+                        notasMap[titulo.numero_nota].push(titulo);
+                    });
+
+                    // Ordenar duplicatas dentro de cada nota
+                    Object.keys(notasMap).forEach(nota => {
+                        notasMap[nota].sort((a, b) => {
+                            const numA = parseInt(a.numero_duplicata) || 0;
+                            const numB = parseInt(b.numero_duplicata) || 0;
+                            return numA - numB;
+                        });
+                    });
+
                     let html = `
                         <table>
                             <thead>
@@ -607,7 +1037,7 @@
                                     <th class="checkbox-cell">
                                         <input type="checkbox" onchange="selecionarTodos(this)">
                                     </th>
-                                    <th>NF-e</th>
+                                    <th>Título</th>
                                     <th>Emitente</th>
                                     <th>Duplicata</th>
                                     <th>Valor Duplicata</th>
@@ -622,13 +1052,18 @@
 
                     titulos.forEach(titulo => {
                         const disabled = titulo.pedido_id ? 'disabled' : '';
+                        const notaTitulos = notasMap[titulo.numero_nota];
+                        const totalParcelas = notaTitulos.length;
+                        const indexParcela = notaTitulos.findIndex(t => t.id === titulo.id) + 1;
+                        const tituloFormatado = `${titulo.numero_nota} - ${indexParcela}/${totalParcelas}`;
+                        
                         html += `
                             <tr>
                                 <td class="checkbox-cell">
                                     <input type="checkbox" ${disabled} value="${titulo.id}" 
                                            onchange="atualizarSelecionados()">
                                 </td>
-                                <td>${titulo.numero_nota}</td>
+                                <td class="titulo-parcela">${tituloFormatado}</td>
                                 <td>${titulo.emitente_nome}</td>
                                 <td>${titulo.numero_duplicata}</td>
                                 <td>${formatCurrency(titulo.valor_duplicata)}</td>
@@ -930,7 +1365,22 @@
 
         function formatDate(dateString) {
             if (!dateString) return '-';
-            const date = new Date(dateString);
+            
+            // Tenta parsear diferentes formatos
+            let date;
+            
+            // Formato ISO com timezone (2023-12-01T10:30:00-03:00)
+            if (dateString.includes('T')) {
+                date = new Date(dateString);
+            } 
+            // Formato simples (2024-01-01)
+            else if (dateString.includes('-')) {
+                const parts = dateString.split('-');
+                date = new Date(parts[0], parts[1] - 1, parts[2]);
+            } else {
+                return dateString; // Retorna como está se não conseguir parsear
+            }
+            
             return date.toLocaleDateString('pt-BR');
         }
 
