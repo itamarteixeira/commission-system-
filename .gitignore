@@ -1,0 +1,36 @@
+# Node modules
+node_modules/
+
+# Banco de dados (desenvolvimento)
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads temporários
+uploads/*
+!uploads/.gitkeep
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build
+dist/
+build/
