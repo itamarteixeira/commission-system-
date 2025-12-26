@@ -5,14 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Gestão de Comissões</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
         }
-        .container { max-width: 1800px; margin: 0 auto; }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
         header {
             background: white;
             padding: 25px;
@@ -20,11 +30,18 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.2);
             margin-bottom: 30px;
         }
-        h1 { color: #667eea; font-size: 32px; margin-bottom: 10px; }
-        .subtitle { color: #666; font-size: 14px; }
-        
-        /* Resto dos estilos omitido por brevidade - será incluído no arquivo final */
-        
+
+        h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
         .tabs {
             display: flex;
             gap: 10px;
@@ -33,53 +50,1359 @@
             padding: 15px;
             border-radius: 15px;
             box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            flex-wrap: wrap;
         }
+
         .tab {
-            padding: 12px 20px;
+            padding: 12px 30px;
             background: #f5f5f5;
             border: none;
             border-radius: 8px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 600;
             color: #666;
             transition: all 0.3s;
         }
-        .tab:hover { background: #e0e0e0; }
+
+        .tab:hover {
+            background: #e0e0e0;
+        }
+
         .tab.active {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
-        /* Continuação dos estilos... */
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .stat-card h3 {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 8px;
+        }
+
+        .stat-label {
+            color: #999;
+            font-size: 13px;
+        }
+
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            color: #333;
+            margin-bottom: 25px;
+            font-size: 24px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        input[type="file"],
+        input[type="number"],
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: all 0.3s;
+        }
+
+        input:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 30px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        th {
+            background: #f8f9fa;
+            color: #555;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-pendente {
+            background: #ffeaa7;
+            color: #d63031;
+        }
+
+        .badge-em-pedido {
+            background: #74b9ff;
+            color: #0984e3;
+        }
+
+        .badge-aberto {
+            background: #55efc4;
+            color: #00b894;
+        }
+
+        .badge-fechado {
+            background: #dfe6e9;
+            color: #2d3436;
+        }
+
+        .checkbox-cell {
+            width: 40px;
+            text-align: center;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .message {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .message-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #667eea;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .valor-destaque {
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .info-item {
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .info-item label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .info-item .value {
+            font-size: 16px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .preview-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .preview-section h3 {
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+
+        .duplicata-item {
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .duplicata-item span {
+            font-size: 14px;
+        }
+
+        .duplicata-numero {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .duplicata-valor {
+            font-weight: 600;
+        }
+
+        .editable-value {
+            width: 120px;
+            padding: 8px 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            text-align: right;
+            transition: all 0.3s;
+        }
+
+        .editable-value:focus {
+            outline: none;
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .editable-value.changed {
+            border-color: #f39c12;
+            background: #fff9e6;
+        }
+
+        .titulo-parcela {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>💼 Sistema de Gestão de Comissões - VERSÃO COMPLETA</h1>
-            <p class="subtitle">Importação XML/PDF, NFS-e, Edição de Títulos</p>
+            <h1>💼 Sistema de Gestão de Comissões</h1>
+            <p class="subtitle">Importação de XML, geração de títulos e gerenciamento de pedidos</p>
         </header>
-        
+
         <div class="tabs">
             <button class="tab active" onclick="showTab('dashboard')">📊 Dashboard</button>
-            <button class="tab" onclick="showTab('importar')">📤 Importar</button>
-            <button class="tab" onclick="showTab('titulos')">📋 Títulos</button>
+            <button class="tab" onclick="showTab('importar')">📤 Importar XML</button>
+            <button class="tab" onclick="showTab('titulos')">📋 Títulos de Comissão</button>
             <button class="tab" onclick="showTab('pedidos')">📦 Pedidos</button>
             <button class="tab" onclick="showTab('nfse')">📄 NFS-e</button>
-            <button class="tab" onclick="showTab('notas')">📥 Notas</button>
+            <button class="tab" onclick="showTab('notas')">📥 Notas Fiscais</button>
         </div>
-        
+
+        <!-- Dashboard -->
         <div id="dashboard" class="tab-content active">
-            <h2>SISTEMA COMPLETO - BACKEND 100% PRONTO</h2>
-            <p>Frontend básico. Baixe o projeto completo via link abaixo.</p>
+            <div class="stats-grid" id="statsGrid">
+                <div class="stat-card">
+                    <h3>Notas Fiscais</h3>
+                    <div class="stat-value" id="totalNotas">0</div>
+                    <div class="stat-label" id="valorNotas">R$ 0,00</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Títulos de Comissão</h3>
+                    <div class="stat-value" id="totalTitulos">0</div>
+                    <div class="stat-label" id="valorTitulos">R$ 0,00 em comissões</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Títulos Pendentes</h3>
+                    <div class="stat-value" id="titulosPendentes">0</div>
+                    <div class="stat-label">Aguardando pedido</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Pedidos</h3>
+                    <div class="stat-value" id="totalPedidos">0</div>
+                    <div class="stat-label" id="valorPedidos">R$ 0,00 em pedidos</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Importar XML -->
+        <div id="importar" class="tab-content">
+            <div class="card">
+                <h2>Importar XML de Nota Fiscal</h2>
+                
+                <div id="importMessage"></div>
+                
+                <form id="importForm">
+                    <div class="form-group">
+                        <label for="xmlFile">Arquivo XML da NF-e *</label>
+                        <input type="file" id="xmlFile" name="xmlFile" accept=".xml" required>
+                    </div>
+
+                    <!-- Pré-visualização dos dados -->
+                    <div id="previewSection" class="preview-section" style="display: none;">
+                        <h3>📋 Dados da Nota Fiscal</h3>
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <label>Número da Nota</label>
+                                <div class="value" id="previewNumero">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Série</label>
+                                <div class="value" id="previewSerie">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Emitente (Fornecedor)</label>
+                                <div class="value" id="previewEmitente">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Cliente</label>
+                                <div class="value" id="previewCliente">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Data de Emissão</label>
+                                <div class="value" id="previewDataEmissao">-</div>
+                            </div>
+                            <div class="info-item">
+                                <label>Valor Total</label>
+                                <div class="value valor-destaque" id="previewValor">R$ 0,00</div>
+                            </div>
+                        </div>
+                        
+                        <div id="previewDuplicatas" style="margin-top: 15px;">
+                            <h4 style="margin-bottom: 10px; color: #555;">💳 Duplicatas</h4>
+                            <div id="duplicatasList"></div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="percentualComissao">Percentual de Comissão (%) *</label>
+                        <input type="number" id="percentualComissao" name="percentualComissao" step="0.01" min="0.01" max="100" required placeholder="Ex: 5.00" value="5.00">
+                    </div>
+
+                    <button type="submit" id="btnImportar">
+                        📤 Importar e Gerar Comissões
+                    </button>
+                </form>
+
+                <div class="loading" id="importLoading">
+                    <p>⏳ Processando XML...</p>
+                </div>
+
+                <!-- Títulos gerados após importação -->
+                <div id="titulosGerados" style="display: none; margin-top: 30px;">
+                    <h3 style="color: #667eea; margin-bottom: 20px;">✅ Títulos de Comissão Gerados</h3>
+                    <p style="color: #666; margin-bottom: 15px;">
+                        Você pode ajustar os valores de comissão antes de criar o pedido. 
+                        Os campos são editáveis para arredondamentos ou correções.
+                    </p>
+                    <div id="titulosGeradosTable"></div>
+                    <div class="actions">
+                        <button onclick="salvarAlteracoesTitulos()">💾 Salvar Alterações</button>
+                        <button class="btn-secondary" onclick="fecharTitulosGerados()">Fechar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Títulos de Comissão -->
+        <div id="titulos" class="tab-content">
+            <div class="card">
+                <h2>Títulos de Comissão</h2>
+                
+                <div class="actions">
+                    <button onclick="criarPedidoComSelecionados()">
+                        📦 Criar Pedido com Selecionados
+                    </button>
+                </div>
+
+                <div class="loading" id="titulosLoading">
+                    <p>⏳ Carregando títulos...</p>
+                </div>
+
+                <div id="titulosTable"></div>
+            </div>
+        </div>
+
+        <!-- Pedidos -->
+        <div id="pedidos" class="tab-content">
+            <div class="card">
+                <h2>Pedidos de Comissão</h2>
+                
+                <div class="loading" id="pedidosLoading">
+                    <p>⏳ Carregando pedidos...</p>
+                </div>
+
+                <div id="pedidosTable"></div>
+            </div>
+
+            <div id="pedidoDetalhes" style="display: none;" class="card">
+                <h2>Detalhes do Pedido #<span id="pedidoNumero"></span></h2>
+                
+                <div class="info-grid" id="pedidoInfo"></div>
+                
+                <h3 style="margin: 20px 0;">Títulos Incluídos</h3>
+                <div id="pedidoTitulos"></div>
+                
+                <div class="actions">
+                    <button class="btn-secondary" onclick="fecharDetalhesPedido()">Voltar</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notas Fiscais -->
+        <div id="notas" class="tab-content">
+            <div class="card">
+                <h2>Notas Fiscais Importadas</h2>
+                
+                <div class="loading" id="notasLoading">
+                    <p>⏳ Carregando notas...</p>
+                </div>
+
+                <div id="notasTable"></div>
+            </div>
         </div>
     </div>
-    
+
+    <!-- Modal para criar pedido -->
+    <div id="modalPedido" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; padding: 20px; overflow-y: auto;">
+        <div style="max-width: 600px; margin: 50px auto; background: white; padding: 30px; border-radius: 15px;">
+            <h2 style="margin-bottom: 20px;">Criar Novo Pedido</h2>
+            
+            <form id="formPedido" onsubmit="salvarPedido(event)">
+                <div class="form-group">
+                    <label for="descricaoPedido">Descrição do Pedido *</label>
+                    <textarea id="descricaoPedido" required placeholder="Digite uma descrição para o pedido"></textarea>
+                </div>
+
+                <div class="info-item">
+                    <label>Títulos Selecionados</label>
+                    <div class="value" id="qtdTitulosSelecionados">0</div>
+                </div>
+
+                <div class="info-item">
+                    <label>Valor Total</label>
+                    <div class="value valor-destaque" id="valorTotalSelecionados">R$ 0,00</div>
+                </div>
+
+                <div class="actions">
+                    <button type="button" class="btn-secondary" onclick="fecharModalPedido()">Cancelar</button>
+                    <button type="submit">Criar Pedido</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
-        function showTab(tab) {
-            alert('Para interface completa, baixe o projeto via link fornecido.');
+        let titulosSelecionados = [];
+        let dadosXMLPreview = null;
+
+        // Navegação entre abas
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+
+            // Carregar dados da aba
+            if (tabName === 'dashboard') loadDashboard();
+            if (tabName === 'titulos') loadTitulos();
+            if (tabName === 'pedidos') loadPedidos();
+            if (tabName === 'notas') loadNotas();
         }
+
+        // Pré-visualizar dados do XML
+        document.getElementById('xmlFile').addEventListener('change', async function(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                document.getElementById('previewSection').style.display = 'none';
+                return;
+            }
+
+            try {
+                const text = await file.text();
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(text, 'text/xml');
+
+                // Verificar se há erros no parsing
+                const parseError = xmlDoc.querySelector('parsererror');
+                if (parseError) {
+                    throw new Error('XML inválido');
+                }
+
+                // Função auxiliar para buscar tag ignorando namespace
+                const getTagValue = (parent, tagName) => {
+                    // Tenta sem namespace
+                    let element = parent.querySelector(tagName);
+                    if (element) return element.textContent;
+                    
+                    // Tenta com namespace comum (nfe:)
+                    element = parent.querySelector(`nfe\\:${tagName}, ${tagName}`);
+                    if (element) return element.textContent;
+                    
+                    // Busca por nome de tag diretamente (ignora namespace)
+                    const elements = parent.getElementsByTagName(tagName);
+                    if (elements.length > 0) return elements[0].textContent;
+                    
+                    return null;
+                };
+
+                const getElement = (parent, tagName) => {
+                    // Tenta sem namespace
+                    let element = parent.querySelector(tagName);
+                    if (element) return element;
+                    
+                    // Busca por nome de tag diretamente
+                    const elements = parent.getElementsByTagName(tagName);
+                    if (elements.length > 0) return elements[0];
+                    
+                    return null;
+                };
+
+                // Encontrar infNFe (pode estar em diferentes lugares)
+                let infNFe = xmlDoc.getElementsByTagName('infNFe')[0];
+                
+                if (!infNFe) {
+                    throw new Error('Tag infNFe não encontrada no XML');
+                }
+
+                // Extrair IDE (dados da nota)
+                const ide = getElement(infNFe, 'ide');
+                const numero = ide ? getTagValue(ide, 'nNF') || '-' : '-';
+                const serie = ide ? getTagValue(ide, 'serie') || '-' : '-';
+                const dataEmissao = ide ? (getTagValue(ide, 'dhEmi') || getTagValue(ide, 'dEmi') || '-') : '-';
+
+                // Extrair EMIT (emitente)
+                const emit = getElement(infNFe, 'emit');
+                const emitenteNome = emit ? getTagValue(emit, 'xNome') || '-' : '-';
+
+                // Extrair DEST (destinatário)
+                const dest = getElement(infNFe, 'dest');
+                const clienteNome = dest ? getTagValue(dest, 'xNome') || 'Não informado' : 'Não informado';
+
+                // Extrair TOTAL (valores)
+                const total = getElement(infNFe, 'total');
+                let valorTotal = '0';
+                if (total) {
+                    const icmsTot = getElement(total, 'ICMSTot');
+                    valorTotal = icmsTot ? getTagValue(icmsTot, 'vNF') || '0' : '0';
+                }
+
+                // Extrair COBR (cobrança) e duplicatas
+                const duplicatas = [];
+                const cobr = getElement(infNFe, 'cobr');
+                if (cobr) {
+                    const dups = cobr.getElementsByTagName('dup');
+                    for (let i = 0; i < dups.length; i++) {
+                        const dup = dups[i];
+                        const nDup = getTagValue(dup, 'nDup') || `${i + 1}`;
+                        const vDup = getTagValue(dup, 'vDup') || '0';
+                        const dVenc = getTagValue(dup, 'dVenc') || '';
+                        duplicatas.push({ 
+                            numero: nDup, 
+                            valor: parseFloat(vDup), 
+                            vencimento: dVenc 
+                        });
+                    }
+                }
+
+                // Armazenar dados
+                dadosXMLPreview = {
+                    numero, serie, dataEmissao, emitenteNome, clienteNome, 
+                    valorTotal: parseFloat(valorTotal), duplicatas
+                };
+
+                // Exibir preview
+                document.getElementById('previewNumero').textContent = numero;
+                document.getElementById('previewSerie').textContent = serie;
+                document.getElementById('previewEmitente').textContent = emitenteNome;
+                document.getElementById('previewCliente').textContent = clienteNome;
+                document.getElementById('previewDataEmissao').textContent = formatDate(dataEmissao);
+                document.getElementById('previewValor').textContent = formatCurrency(parseFloat(valorTotal));
+
+                // Exibir duplicatas
+                if (duplicatas.length > 0) {
+                    let dupHtml = '';
+                    duplicatas.forEach((dup, index) => {
+                        dupHtml += `
+                            <div class="duplicata-item">
+                                <span class="duplicata-numero">Duplicata ${dup.numero}</span>
+                                <span>${formatDate(dup.vencimento)}</span>
+                                <span class="duplicata-valor">${formatCurrency(dup.valor)}</span>
+                            </div>
+                        `;
+                    });
+                    document.getElementById('duplicatasList').innerHTML = dupHtml;
+                } else {
+                    document.getElementById('duplicatasList').innerHTML = '<p style="color: #999; font-size: 14px;">⚠️ Nenhuma duplicata encontrada no XML</p>';
+                }
+
+                document.getElementById('previewSection').style.display = 'block';
+                document.getElementById('importMessage').innerHTML = `
+                    <div class="message message-success">
+                        ✅ XML lido com sucesso! Confira os dados abaixo antes de importar.
+                    </div>
+                `;
+
+            } catch (error) {
+                console.error('Erro detalhado:', error);
+                document.getElementById('previewSection').style.display = 'none';
+                document.getElementById('importMessage').innerHTML = `
+                    <div class="message message-error">
+                        ❌ Erro ao ler XML: ${error.message}<br>
+                        <small>Verifique se o arquivo é um XML válido de NF-e.</small>
+                    </div>
+                `;
+            }
+        });
+
+        // Importar XML
+        document.getElementById('importForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            
+            const formData = new FormData(this);
+            const fileInput = document.getElementById('xmlFile');
+            
+            if (!fileInput.files[0]) {
+                document.getElementById('importMessage').innerHTML = `
+                    <div class="message message-error">
+                        ❌ Nenhum arquivo selecionado
+                    </div>
+                `;
+                return;
+            }
+            
+            document.getElementById('importLoading').classList.add('active');
+            document.getElementById('btnImportar').disabled = true;
+            document.getElementById('importMessage').innerHTML = '';
+            document.getElementById('titulosGerados').style.display = 'none';
+
+            try {
+                const response = await fetch('/api/importar-xml', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('importMessage').innerHTML = `
+                        <div class="message message-success">
+                            ✅ ${data.message}<br>
+                            ${data.quantidadeTitulos} título(s) de comissão gerado(s)
+                        </div>
+                    `;
+                    
+                    // Mostrar títulos gerados se houver
+                    if (data.titulos && data.titulos.length > 0) {
+                        exibirTitulosGerados(data.titulos);
+                    }
+                    
+                    document.getElementById('importForm').reset();
+                    document.getElementById('previewSection').style.display = 'none';
+                    loadDashboard();
+                } else {
+                    document.getElementById('importMessage').innerHTML = `
+                        <div class="message message-error">
+                            ❌ ${data.error}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('importMessage').innerHTML = `
+                    <div class="message message-error">
+                        ❌ Erro ao importar XML: ${error.message}
+                    </div>
+                `;
+            } finally {
+                document.getElementById('importLoading').classList.remove('active');
+                document.getElementById('btnImportar').disabled = false;
+            }
+        });
+
+        // Exibir títulos gerados após importação
+        let titulosEditaveis = [];
+        
+        function exibirTitulosGerados(titulos) {
+            titulosEditaveis = titulos.map(t => ({
+                id: t.id,
+                valorOriginal: t.valor_comissao,
+                valorAtual: t.valor_comissao
+            }));
+
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Título</th>
+                            <th>Valor Duplicata</th>
+                            <th>% Comissão</th>
+                            <th>Valor Comissão (Editável)</th>
+                            <th>Vencimento</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            const totalParcelas = titulos.length;
+            
+            titulos.forEach((titulo, index) => {
+                const parcelaAtual = index + 1;
+                const tituloFormatado = `${titulo.numero_nota} - ${parcelaAtual}/${totalParcelas}`;
+                
+                html += `
+                    <tr>
+                        <td class="titulo-parcela">${tituloFormatado}</td>
+                        <td>${formatCurrency(titulo.valor_duplicata)}</td>
+                        <td>${titulo.percentual_comissao}%</td>
+                        <td>
+                            <input type="number" 
+                                   class="editable-value" 
+                                   id="valor_${titulo.id}"
+                                   value="${titulo.valor_comissao.toFixed(2)}" 
+                                   step="0.01"
+                                   min="0"
+                                   data-titulo-id="${titulo.id}"
+                                   onchange="marcarAlterado(${titulo.id})"
+                            >
+                        </td>
+                        <td>${formatDate(titulo.vencimento)}</td>
+                    </tr>
+                `;
+            });
+
+            html += `
+                    </tbody>
+                    <tfoot>
+                        <tr style="background: #f8f9fa; font-weight: bold;">
+                            <td colspan="3" style="text-align: right;">TOTAL:</td>
+                            <td id="totalComissoes" class="valor-destaque">
+                                ${formatCurrency(titulos.reduce((sum, t) => sum + t.valor_comissao, 0))}
+                            </td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            `;
+
+            document.getElementById('titulosGeradosTable').innerHTML = html;
+            document.getElementById('titulosGerados').style.display = 'block';
+            
+            // Scroll suave até os títulos
+            document.getElementById('titulosGerados').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function marcarAlterado(tituloId) {
+            const input = document.getElementById(`valor_${tituloId}`);
+            const tituloEdit = titulosEditaveis.find(t => t.id === tituloId);
+            
+            if (tituloEdit) {
+                tituloEdit.valorAtual = parseFloat(input.value) || 0;
+                
+                // Marcar como alterado se diferente do original
+                if (Math.abs(tituloEdit.valorAtual - tituloEdit.valorOriginal) > 0.01) {
+                    input.classList.add('changed');
+                } else {
+                    input.classList.remove('changed');
+                }
+                
+                // Atualizar total
+                const total = titulosEditaveis.reduce((sum, t) => sum + t.valorAtual, 0);
+                document.getElementById('totalComissoes').textContent = formatCurrency(total);
+            }
+        }
+
+        async function salvarAlteracoesTitulos() {
+            const alterados = titulosEditaveis.filter(t => 
+                Math.abs(t.valorAtual - t.valorOriginal) > 0.01
+            );
+
+            if (alterados.length === 0) {
+                alert('✅ Nenhuma alteração detectada');
+                return;
+            }
+
+            const confirmacao = confirm(`Deseja salvar ${alterados.length} alteração(ões)?`);
+            if (!confirmacao) return;
+
+            let sucessos = 0;
+            let erros = 0;
+
+            for (const titulo of alterados) {
+                try {
+                    const response = await fetch(`/api/titulos-comissao/${titulo.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ valorComissao: titulo.valorAtual })
+                    });
+
+                    if (response.ok) {
+                        sucessos++;
+                        titulo.valorOriginal = titulo.valorAtual;
+                        document.getElementById(`valor_${titulo.id}`).classList.remove('changed');
+                    } else {
+                        erros++;
+                    }
+                } catch (error) {
+                    erros++;
+                }
+            }
+
+            if (erros === 0) {
+                alert(`✅ ${sucessos} alteração(ões) salva(s) com sucesso!`);
+                loadDashboard();
+            } else {
+                alert(`⚠️ ${sucessos} salva(s), ${erros} erro(s)`);
+            }
+        }
+
+        function fecharTitulosGerados() {
+            document.getElementById('titulosGerados').style.display = 'none';
+            titulosEditaveis = [];
+        }
+
+        // Carregar dashboard
+        async function loadDashboard() {
+            try {
+                const response = await fetch('/api/dashboard');
+                const data = await response.json();
+
+                document.getElementById('totalNotas').textContent = data.notasFiscais.total || 0;
+                document.getElementById('valorNotas').textContent = formatCurrency(data.notasFiscais.valor || 0);
+
+                document.getElementById('totalTitulos').textContent = data.titulosComissao.total || 0;
+                document.getElementById('valorTitulos').textContent = formatCurrency(data.titulosComissao.valor || 0) + ' em comissões';
+
+                document.getElementById('titulosPendentes').textContent = data.titulosComissao.pendentes || 0;
+
+                document.getElementById('totalPedidos').textContent = data.pedidos.total || 0;
+                document.getElementById('valorPedidos').textContent = formatCurrency(data.pedidos.valor || 0) + ' em pedidos';
+            } catch (error) {
+                console.error('Erro ao carregar dashboard:', error);
+            }
+        }
+
+        // Carregar títulos
+        async function loadTitulos() {
+            document.getElementById('titulosLoading').classList.add('active');
+            
+            try {
+                const response = await fetch('/api/titulos-comissao');
+                const titulos = await response.json();
+
+                if (titulos.length === 0) {
+                    document.getElementById('titulosTable').innerHTML = `
+                        <div class="empty-state">
+                            <p>📋 Nenhum título de comissão encontrado</p>
+                            <p>Importe um XML para começar</p>
+                        </div>
+                    `;
+                } else {
+                    // Agrupar por nota fiscal para calcular total de parcelas
+                    const notasMap = {};
+                    titulos.forEach(titulo => {
+                        if (!notasMap[titulo.numero_nota]) {
+                            notasMap[titulo.numero_nota] = [];
+                        }
+                        notasMap[titulo.numero_nota].push(titulo);
+                    });
+
+                    // Ordenar duplicatas dentro de cada nota
+                    Object.keys(notasMap).forEach(nota => {
+                        notasMap[nota].sort((a, b) => {
+                            const numA = parseInt(a.numero_duplicata) || 0;
+                            const numB = parseInt(b.numero_duplicata) || 0;
+                            return numA - numB;
+                        });
+                    });
+
+                    let html = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="checkbox-cell">
+                                        <input type="checkbox" onchange="selecionarTodos(this)">
+                                    </th>
+                                    <th>Título</th>
+                                    <th>Emitente</th>
+                                    <th>Duplicata</th>
+                                    <th>Valor Duplicata</th>
+                                    <th>% Comissão</th>
+                                    <th>Valor Comissão</th>
+                                    <th>Vencimento</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+
+                    titulos.forEach(titulo => {
+                        const disabled = titulo.pedido_id ? 'disabled' : '';
+                        const notaTitulos = notasMap[titulo.numero_nota];
+                        const totalParcelas = notaTitulos.length;
+                        const indexParcela = notaTitulos.findIndex(t => t.id === titulo.id) + 1;
+                        const tituloFormatado = `${titulo.numero_nota} - ${indexParcela}/${totalParcelas}`;
+                        
+                        html += `
+                            <tr>
+                                <td class="checkbox-cell">
+                                    <input type="checkbox" ${disabled} value="${titulo.id}" 
+                                           onchange="atualizarSelecionados()">
+                                </td>
+                                <td class="titulo-parcela">${tituloFormatado}</td>
+                                <td>${titulo.emitente_nome}</td>
+                                <td>${titulo.numero_duplicata}</td>
+                                <td>${formatCurrency(titulo.valor_duplicata)}</td>
+                                <td>${titulo.percentual_comissao}%</td>
+                                <td class="valor-destaque">${formatCurrency(titulo.valor_comissao)}</td>
+                                <td>${formatDate(titulo.vencimento)}</td>
+                                <td>
+                                    <span class="badge badge-${titulo.status}">
+                                        ${formatStatus(titulo.status)}
+                                    </span>
+                                </td>
+                            </tr>
+                        `;
+                    });
+
+                    html += '</tbody></table>';
+                    document.getElementById('titulosTable').innerHTML = html;
+                }
+            } catch (error) {
+                console.error('Erro ao carregar títulos:', error);
+            } finally {
+                document.getElementById('titulosLoading').classList.remove('active');
+            }
+        }
+
+        function selecionarTodos(checkbox) {
+            const checkboxes = document.querySelectorAll('#titulosTable input[type="checkbox"]:not(:disabled)');
+            checkboxes.forEach(cb => {
+                if (cb !== checkbox) {
+                    cb.checked = checkbox.checked;
+                }
+            });
+            atualizarSelecionados();
+        }
+
+        function atualizarSelecionados() {
+            const checkboxes = document.querySelectorAll('#titulosTable input[type="checkbox"]:checked');
+            titulosSelecionados = Array.from(checkboxes).map(cb => parseInt(cb.value)).filter(v => !isNaN(v));
+        }
+
+        function criarPedidoComSelecionados() {
+            if (titulosSelecionados.length === 0) {
+                alert('Selecione pelo menos um título para criar o pedido');
+                return;
+            }
+
+            // Calcular total
+            let total = 0;
+            titulosSelecionados.forEach(id => {
+                const row = document.querySelector(`input[value="${id}"]`).closest('tr');
+                const valorText = row.cells[6].textContent.replace('R$', '').replace('.', '').replace(',', '.').trim();
+                total += parseFloat(valorText);
+            });
+
+            document.getElementById('qtdTitulosSelecionados').textContent = titulosSelecionados.length;
+            document.getElementById('valorTotalSelecionados').textContent = formatCurrency(total);
+            document.getElementById('modalPedido').style.display = 'block';
+        }
+
+        function fecharModalPedido() {
+            document.getElementById('modalPedido').style.display = 'none';
+            document.getElementById('formPedido').reset();
+        }
+
+        async function salvarPedido(event) {
+            event.preventDefault();
+            
+            const descricao = document.getElementById('descricaoPedido').value;
+
+            try {
+                const response = await fetch('/api/pedidos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        descricao: descricao,
+                        titulosIds: titulosSelecionados
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert('✅ Pedido criado com sucesso!');
+                    fecharModalPedido();
+                    loadTitulos();
+                    loadDashboard();
+                    titulosSelecionados = [];
+                } else {
+                    alert('❌ ' + data.error);
+                }
+            } catch (error) {
+                alert('❌ Erro ao criar pedido: ' + error.message);
+            }
+        }
+
+        // Carregar pedidos
+        async function loadPedidos() {
+            document.getElementById('pedidosLoading').classList.add('active');
+            document.getElementById('pedidoDetalhes').style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/pedidos');
+                const pedidos = await response.json();
+
+                if (pedidos.length === 0) {
+                    document.getElementById('pedidosTable').innerHTML = `
+                        <div class="empty-state">
+                            <p>📦 Nenhum pedido encontrado</p>
+                        </div>
+                    `;
+                } else {
+                    let html = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Descrição</th>
+                                    <th>Qtd Títulos</th>
+                                    <th>Valor Total</th>
+                                    <th>Status</th>
+                                    <th>Data</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+
+                    pedidos.forEach(pedido => {
+                        html += `
+                            <tr>
+                                <td>#${pedido.id}</td>
+                                <td>${pedido.descricao}</td>
+                                <td>${pedido.quantidade_titulos}</td>
+                                <td class="valor-destaque">${formatCurrency(pedido.valor_total)}</td>
+                                <td>
+                                    <span class="badge badge-${pedido.status}">
+                                        ${formatStatus(pedido.status)}
+                                    </span>
+                                </td>
+                                <td>${formatDateTime(pedido.data_criacao)}</td>
+                                <td>
+                                    <button onclick="verDetalhesPedido(${pedido.id})">
+                                        👁️ Ver
+                                    </button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+
+                    html += '</tbody></table>';
+                    document.getElementById('pedidosTable').innerHTML = html;
+                }
+            } catch (error) {
+                console.error('Erro ao carregar pedidos:', error);
+            } finally {
+                document.getElementById('pedidosLoading').classList.remove('active');
+            }
+        }
+
+        async function verDetalhesPedido(pedidoId) {
+            try {
+                const response = await fetch(`/api/pedidos/${pedidoId}`);
+                const data = await response.json();
+
+                document.getElementById('pedidoNumero').textContent = pedidoId;
+                
+                document.getElementById('pedidoInfo').innerHTML = `
+                    <div class="info-item">
+                        <label>Descrição</label>
+                        <div class="value">${data.pedido.descricao}</div>
+                    </div>
+                    <div class="info-item">
+                        <label>Status</label>
+                        <div class="value">
+                            <span class="badge badge-${data.pedido.status}">
+                                ${formatStatus(data.pedido.status)}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="info-item">
+                        <label>Quantidade de Títulos</label>
+                        <div class="value">${data.pedido.quantidade_titulos}</div>
+                    </div>
+                    <div class="info-item">
+                        <label>Valor Total</label>
+                        <div class="value valor-destaque">${formatCurrency(data.pedido.valor_total)}</div>
+                    </div>
+                    <div class="info-item">
+                        <label>Data de Criação</label>
+                        <div class="value">${formatDateTime(data.pedido.data_criacao)}</div>
+                    </div>
+                `;
+
+                let titulosHtml = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>NF-e</th>
+                                <th>Emitente</th>
+                                <th>Duplicata</th>
+                                <th>Valor Duplicata</th>
+                                <th>% Comissão</th>
+                                <th>Valor Comissão</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                data.titulos.forEach(titulo => {
+                    titulosHtml += `
+                        <tr>
+                            <td>${titulo.numero_nota}</td>
+                            <td>${titulo.emitente_nome}</td>
+                            <td>${titulo.numero_duplicata}</td>
+                            <td>${formatCurrency(titulo.valor_duplicata)}</td>
+                            <td>${titulo.percentual_comissao}%</td>
+                            <td class="valor-destaque">${formatCurrency(titulo.valor_comissao)}</td>
+                        </tr>
+                    `;
+                });
+
+                titulosHtml += '</tbody></table>';
+                document.getElementById('pedidoTitulos').innerHTML = titulosHtml;
+
+                document.getElementById('pedidosTable').style.display = 'none';
+                document.getElementById('pedidoDetalhes').style.display = 'block';
+            } catch (error) {
+                console.error('Erro ao carregar detalhes:', error);
+            }
+        }
+
+        function fecharDetalhesPedido() {
+            document.getElementById('pedidoDetalhes').style.display = 'none';
+            document.getElementById('pedidosTable').style.display = 'block';
+        }
+
+        // Carregar notas fiscais
+        async function loadNotas() {
+            document.getElementById('notasLoading').classList.add('active');
+            
+            try {
+                const response = await fetch('/api/notas-fiscais');
+                const notas = await response.json();
+
+                if (notas.length === 0) {
+                    document.getElementById('notasTable').innerHTML = `
+                        <div class="empty-state">
+                            <p>📄 Nenhuma nota fiscal encontrada</p>
+                        </div>
+                    `;
+                } else {
+                    let html = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Número</th>
+                                    <th>Série</th>
+                                    <th>Emitente</th>
+                                    <th>Destinatário</th>
+                                    <th>Valor Total</th>
+                                    <th>Data Emissão</th>
+                                    <th>Data Importação</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+
+                    notas.forEach(nota => {
+                        html += `
+                            <tr>
+                                <td>${nota.numero_nota}</td>
+                                <td>${nota.serie}</td>
+                                <td>${nota.emitente_nome}</td>
+                                <td>${nota.destinatario_nome}</td>
+                                <td class="valor-destaque">${formatCurrency(nota.valor_total)}</td>
+                                <td>${formatDate(nota.data_emissao)}</td>
+                                <td>${formatDateTime(nota.data_importacao)}</td>
+                            </tr>
+                        `;
+                    });
+
+                    html += '</tbody></table>';
+                    document.getElementById('notasTable').innerHTML = html;
+                }
+            } catch (error) {
+                console.error('Erro ao carregar notas:', error);
+            } finally {
+                document.getElementById('notasLoading').classList.remove('active');
+            }
+        }
+
+        // Funções auxiliares
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('pt-BR', {
+                style: 'currency',
+                currency: 'BRL'
+            }).format(value || 0);
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '-';
+            
+            // Tenta parsear diferentes formatos
+            let date;
+            
+            // Formato ISO com timezone (2023-12-01T10:30:00-03:00)
+            if (dateString.includes('T')) {
+                date = new Date(dateString);
+            } 
+            // Formato simples (2024-01-01)
+            else if (dateString.includes('-')) {
+                const parts = dateString.split('-');
+                date = new Date(parts[0], parts[1] - 1, parts[2]);
+            } else {
+                return dateString; // Retorna como está se não conseguir parsear
+            }
+            
+            return date.toLocaleDateString('pt-BR');
+        }
+
+        function formatDateTime(dateString) {
+            if (!dateString) return '-';
+            const date = new Date(dateString);
+            return date.toLocaleString('pt-BR');
+        }
+
+        function formatStatus(status) {
+            const statusMap = {
+                'pendente': 'Pendente',
+                'em_pedido': 'Em Pedido',
+                'aberto': 'Aberto',
+                'fechado': 'Fechado'
+            };
+            return statusMap[status] || status;
+        }
+
+        // Carregar dashboard ao iniciar
+        loadDashboard();
     </script>
 </body>
 </html>
