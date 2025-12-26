@@ -303,6 +303,104 @@
             color: #667eea;
         }
 
+        /* Painel de Filtros */
+        .filtros-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .filtros-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .filtro-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .filtro-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .filtro-input {
+            padding: 10px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .filtro-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .filtros-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+
+        .btn-filtrar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-filtrar:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-limpar {
+            background: #6c757d;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-limpar:hover {
+            background: #5a6268;
+        }
+
+        .resultados-info {
+            padding: 10px 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 15px;
+        }
+
+        @media (max-width: 768px) {
+            .filtros-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .info-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -520,6 +618,67 @@
             <div class="card">
                 <h2>Títulos de Comissão</h2>
                 
+                <!-- Painel de Filtros -->
+                <div class="filtros-panel">
+                    <div class="filtros-grid">
+                        <div class="filtro-group">
+                            <label class="filtro-label">🔍 Buscar</label>
+                            <input type="text" 
+                                   id="filtroBusca" 
+                                   class="filtro-input" 
+                                   placeholder="Número nota, emitente ou destinatário...">
+                        </div>
+                        
+                        <div class="filtro-group">
+                            <label class="filtro-label">📊 Status</label>
+                            <select id="filtroStatus" class="filtro-input">
+                                <option value="">Todos</option>
+                                <option value="pendente">Pendente</option>
+                                <option value="em_pedido">Em Pedido</option>
+                            </select>
+                        </div>
+                        
+                        <div class="filtro-group">
+                            <label class="filtro-label">💳 Pagamento</label>
+                            <select id="filtroPagamento" class="filtro-input">
+                                <option value="">Todos</option>
+                                <option value="pendente">Pendente</option>
+                                <option value="pago">Pago</option>
+                                <option value="atrasado">Atrasado</option>
+                                <option value="cancelado">Cancelado</option>
+                            </select>
+                        </div>
+                        
+                        <div class="filtro-group">
+                            <label class="filtro-label">📅 Vencimento</label>
+                            <select id="filtroPeriodo" class="filtro-input">
+                                <option value="">Todos</option>
+                                <option value="vencidos">Vencidos</option>
+                                <option value="hoje">Hoje</option>
+                                <option value="7dias">Próximos 7 dias</option>
+                                <option value="30dias">Próximos 30 dias</option>
+                                <option value="futuro">Futuro</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="filtros-actions">
+                        <button class="btn-limpar" onclick="limparFiltros()">
+                            🔄 Limpar Filtros
+                        </button>
+                        <button class="btn-filtrar" onclick="aplicarFiltros()">
+                            📊 Filtrar
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Info de Resultados -->
+                <div id="resultadosInfo" class="resultados-info" style="display: none;">
+                    <strong>📋 Resultados:</strong> 
+                    <span id="totalResultados">0</span> título(s) encontrado(s)
+                    <span id="valorResultados"></span>
+                </div>
+                
                 <div class="actions">
                     <button onclick="criarPedidoComSelecionados()">
                         📦 Criar Pedido com Selecionados
@@ -608,6 +767,8 @@
         let titulosEditaveis = [];
         let dadosXMLPreview = null;
         let tipoArquivoSelecionado = 'xml';
+        let todosTitulos = []; // Array para armazenar todos os títulos (sem filtro)
+        let titulosFiltrados = []; // Array com títulos após aplicar filtros
 
         // Função para selecionar tipo de arquivo (XML ou PDF)
         function selecionarTipo(tipo) {
@@ -615,6 +776,7 @@
             
             const btnXml = document.getElementById('btnXml');
             const btnPdf = document.getElementById('btnPdf');
+            const inputFile = document.getElementById('xmlFile');
             
             // Resetar estilos
             btnXml.style.borderColor = '#e0e0e0';
@@ -631,15 +793,17 @@
                 btnXml.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
                 btnXml.style.color = 'white';
                 document.getElementById('labelArquivo').textContent = 'Arquivo XML da NF-e *';
+                inputFile.accept = '.xml';
             } else {
                 btnPdf.style.borderColor = '#667eea';
                 btnPdf.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
                 btnPdf.style.color = 'white';
                 document.getElementById('labelArquivo').textContent = 'Arquivo PDF da NF-e *';
+                inputFile.accept = '.pdf';
             }
             
-            // Limpar arquivo selecionado
-            document.getElementById('xmlFile').value = '';
+            // Limpar arquivo selecionado e mensagens
+            inputFile.value = '';
             document.getElementById('previewSection').style.display = 'none';
             document.getElementById('importMessage').innerHTML = '';
         }
@@ -810,12 +974,29 @@
                 `;
 
             } catch (error) {
-                console.error('Erro detalhado:', error);
+                console.error('Erro detalhado ao ler arquivo:', error);
                 document.getElementById('previewSection').style.display = 'none';
+                
+                // Verificar tipo de erro
+                let mensagemDetalhada = '';
+                if (error.message.includes('infNFe')) {
+                    mensagemDetalhada = 'O arquivo não parece ser um XML de NF-e válido. Falta a tag &lt;infNFe&gt;.';
+                } else if (error.message.includes('XML inválido')) {
+                    mensagemDetalhada = 'O arquivo XML está mal formatado ou corrompido.';
+                } else {
+                    mensagemDetalhada = error.message;
+                }
+                
                 document.getElementById('importMessage').innerHTML = `
                     <div class="message message-error">
-                        ❌ Erro ao ler XML: ${error.message}<br>
-                        <small>Verifique se o arquivo é um XML válido de NF-e.</small>
+                        ❌ Erro ao ler arquivo:<br>
+                        <strong>${mensagemDetalhada}</strong><br>
+                        <small style="margin-top: 10px; display: block;">
+                            <strong>Dicas:</strong><br>
+                            • Certifique-se de que é um arquivo XML de NF-e<br>
+                            • Se for PDF, clique no botão "PDF" acima<br>
+                            • O arquivo não pode estar corrompido ou incompleto
+                        </small>
                     </div>
                 `;
             }
@@ -1079,6 +1260,10 @@
             try {
                 const response = await fetch('/api/titulos-comissao');
                 const titulos = await response.json();
+                
+                // Armazenar todos os títulos globalmente
+                todosTitulos = titulos;
+                titulosFiltrados = titulos;
 
                 if (titulos.length === 0) {
                     document.getElementById('titulosTable').innerHTML = `
@@ -1087,76 +1272,9 @@
                             <p>Importe um XML para começar</p>
                         </div>
                     `;
+                    document.getElementById('resultadosInfo').style.display = 'none';
                 } else {
-                    // Agrupar por nota fiscal para calcular total de parcelas
-                    const notasMap = {};
-                    titulos.forEach(titulo => {
-                        if (!notasMap[titulo.numero_nota]) {
-                            notasMap[titulo.numero_nota] = [];
-                        }
-                        notasMap[titulo.numero_nota].push(titulo);
-                    });
-
-                    // Ordenar duplicatas dentro de cada nota
-                    Object.keys(notasMap).forEach(nota => {
-                        notasMap[nota].sort((a, b) => {
-                            const numA = parseInt(a.numero_duplicata) || 0;
-                            const numB = parseInt(b.numero_duplicata) || 0;
-                            return numA - numB;
-                        });
-                    });
-
-                    let html = `
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th class="checkbox-cell">
-                                        <input type="checkbox" onchange="selecionarTodos(this)">
-                                    </th>
-                                    <th>Título</th>
-                                    <th>Emitente</th>
-                                    <th>Duplicata</th>
-                                    <th>Valor Duplicata</th>
-                                    <th>% Comissão</th>
-                                    <th>Valor Comissão</th>
-                                    <th>Vencimento</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                    `;
-
-                    titulos.forEach(titulo => {
-                        const disabled = titulo.pedido_id ? 'disabled' : '';
-                        const notaTitulos = notasMap[titulo.numero_nota];
-                        const totalParcelas = notaTitulos.length;
-                        const indexParcela = notaTitulos.findIndex(t => t.id === titulo.id) + 1;
-                        const tituloFormatado = `${titulo.numero_nota} - ${indexParcela}/${totalParcelas}`;
-                        
-                        html += `
-                            <tr>
-                                <td class="checkbox-cell">
-                                    <input type="checkbox" ${disabled} value="${titulo.id}" 
-                                           onchange="atualizarSelecionados()">
-                                </td>
-                                <td class="titulo-parcela">${tituloFormatado}</td>
-                                <td>${titulo.emitente_nome}</td>
-                                <td>${titulo.numero_duplicata}</td>
-                                <td>${formatCurrency(titulo.valor_duplicata)}</td>
-                                <td>${titulo.percentual_comissao}%</td>
-                                <td class="valor-destaque">${formatCurrency(titulo.valor_comissao)}</td>
-                                <td>${formatDate(titulo.vencimento)}</td>
-                                <td>
-                                    <span class="badge badge-${titulo.status}">
-                                        ${formatStatus(titulo.status)}
-                                    </span>
-                                </td>
-                            </tr>
-                        `;
-                    });
-
-                    html += '</tbody></table>';
-                    document.getElementById('titulosTable').innerHTML = html;
+                    renderizarTitulos(titulosFiltrados);
                 }
             } catch (error) {
                 console.error('Erro ao carregar títulos:', error);
@@ -1164,6 +1282,171 @@
                 document.getElementById('titulosLoading').classList.remove('active');
             }
         }
+
+        // Renderizar títulos na tabela
+        function renderizarTitulos(titulos) {
+            if (titulos.length === 0) {
+                document.getElementById('titulosTable').innerHTML = `
+                    <div class="empty-state">
+                        <p>🔍 Nenhum título encontrado com os filtros aplicados</p>
+                        <p><button class="btn-limpar" onclick="limparFiltros()">Limpar Filtros</button></p>
+                    </div>
+                `;
+                document.getElementById('resultadosInfo').style.display = 'none';
+                return;
+            }
+
+            // Agrupar por nota fiscal para calcular total de parcelas
+            const notasMap = {};
+            titulos.forEach(titulo => {
+                if (!notasMap[titulo.numero_nota]) {
+                    notasMap[titulo.numero_nota] = [];
+                }
+                notasMap[titulo.numero_nota].push(titulo);
+            });
+
+            // Ordenar duplicatas dentro de cada nota
+            Object.keys(notasMap).forEach(nota => {
+                notasMap[nota].sort((a, b) => {
+                    const numA = parseInt(a.numero_duplicata) || 0;
+                    const numB = parseInt(b.numero_duplicata) || 0;
+                    return numA - numB;
+                });
+            });
+
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th class="checkbox-cell">
+                                <input type="checkbox" onchange="selecionarTodos(this)">
+                            </th>
+                            <th>Título</th>
+                            <th>Emitente</th>
+                            <th>Destinatário</th>
+                            <th>Duplicata</th>
+                            <th>Valor Duplicata</th>
+                            <th>% Comissão</th>
+                            <th>Valor Comissão</th>
+                            <th>Vencimento</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            let valorTotal = 0;
+            titulos.forEach(titulo => {
+                const disabled = titulo.pedido_id ? 'disabled' : '';
+                const notaTitulos = notasMap[titulo.numero_nota];
+                const totalParcelas = notaTitulos.length;
+                const indexParcela = notaTitulos.findIndex(t => t.id === titulo.id) + 1;
+                const tituloFormatado = `${titulo.numero_nota} - ${indexParcela}/${totalParcelas}`;
+                valorTotal += parseFloat(titulo.valor_comissao);
+                
+                html += `
+                    <tr>
+                        <td class="checkbox-cell">
+                            <input type="checkbox" ${disabled} value="${titulo.id}" 
+                                   onchange="atualizarSelecionados()">
+                        </td>
+                        <td class="titulo-parcela">${tituloFormatado}</td>
+                        <td>${titulo.emitente_nome}</td>
+                        <td>${titulo.cliente_nome || titulo.destinatario_nome || 'Não informado'}</td>
+                        <td>${titulo.numero_duplicata}</td>
+                        <td>${formatCurrency(titulo.valor_duplicata)}</td>
+                        <td>${titulo.percentual_comissao}%</td>
+                        <td class="valor-destaque">${formatCurrency(titulo.valor_comissao)}</td>
+                        <td>${formatDate(titulo.vencimento)}</td>
+                        <td>
+                            <span class="badge badge-${titulo.status}">
+                                ${formatStatus(titulo.status)}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            document.getElementById('titulosTable').innerHTML = html;
+            
+            // Mostrar info de resultados
+            document.getElementById('totalResultados').textContent = titulos.length;
+            document.getElementById('valorResultados').textContent = ` (${formatCurrency(valorTotal)} em comissões)`;
+            document.getElementById('resultadosInfo').style.display = 'block';
+        }
+
+        // Funções de filtro
+        function aplicarFiltros() {
+            const busca = document.getElementById('filtroBusca').value.toLowerCase();
+            const status = document.getElementById('filtroStatus').value;
+            const pagamento = document.getElementById('filtroPagamento').value;
+            const periodo = document.getElementById('filtroPeriodo').value;
+            
+            let filtrados = todosTitulos.filter(titulo => {
+                // Filtro de busca (número nota, emitente, destinatário)
+                if (busca) {
+                    const textoCompleto = `${titulo.numero_nota} ${titulo.emitente_nome} ${titulo.cliente_nome || titulo.destinatario_nome || ''}`.toLowerCase();
+                    if (!textoCompleto.includes(busca)) {
+                        return false;
+                    }
+                }
+                
+                // Filtro de status
+                if (status && titulo.status !== status) {
+                    return false;
+                }
+                
+                // Filtro de pagamento
+                if (pagamento && (titulo.status_pagamento || 'pendente') !== pagamento) {
+                    return false;
+                }
+                
+                // Filtro de período
+                if (periodo) {
+                    const hoje = new Date();
+                    hoje.setHours(0, 0, 0, 0);
+                    const vencimento = new Date(titulo.vencimento);
+                    vencimento.setHours(0, 0, 0, 0);
+                    
+                    const diffDias = Math.ceil((vencimento - hoje) / (1000 * 60 * 60 * 24));
+                    
+                    if (periodo === 'vencidos' && diffDias >= 0) return false;
+                    if (periodo === 'hoje' && diffDias !== 0) return false;
+                    if (periodo === '7dias' && (diffDias < 0 || diffDias > 7)) return false;
+                    if (periodo === '30dias' && (diffDias < 0 || diffDias > 30)) return false;
+                    if (periodo === 'futuro' && diffDias <= 0) return false;
+                }
+                
+                return true;
+            });
+            
+            titulosFiltrados = filtrados;
+            renderizarTitulos(filtrados);
+        }
+        
+        function limparFiltros() {
+            document.getElementById('filtroBusca').value = '';
+            document.getElementById('filtroStatus').value = '';
+            document.getElementById('filtroPagamento').value = '';
+            document.getElementById('filtroPeriodo').value = '';
+            
+            titulosFiltrados = todosTitulos;
+            renderizarTitulos(todosTitulos);
+        }
+        
+        // Event listeners para filtros em tempo real
+        document.addEventListener('DOMContentLoaded', function() {
+            // Aplicar filtro ao pressionar Enter no campo de busca
+            const campoBusca = document.getElementById('filtroBusca');
+            if (campoBusca) {
+                campoBusca.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        aplicarFiltros();
+                    }
+                });
+            }
+        });
 
         function selecionarTodos(checkbox) {
             const checkboxes = document.querySelectorAll('#titulosTable input[type="checkbox"]:not(:disabled)');
