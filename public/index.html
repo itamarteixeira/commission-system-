@@ -537,14 +537,30 @@
         <!-- Importar XML -->
         <div id="importar" class="tab-content">
             <div class="card">
-                <h2>Importar XML de Nota Fiscal</h2>
+                <h2>Importar Nota Fiscal</h2>
                 
                 <div id="importMessage"></div>
                 
                 <form id="importForm">
                     <div class="form-group">
-                        <label for="xmlFile">Arquivo XML da NF-e *</label>
-                        <input type="file" id="xmlFile" name="xmlFile" accept=".xml" required>
+                        <label>Tipo de Arquivo *</label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+                            <div style="padding: 20px; border: 3px solid #667eea; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; cursor: pointer; text-align: center; font-weight: 600; transition: all 0.3s;" id="btnXml" onclick="selecionarTipo('xml')">
+                                <span style="font-size: 32px; display: block; margin-bottom: 10px;">📄</span>
+                                <strong>XML</strong>
+                                <div style="font-size: 12px; margin-top: 5px;">Arquivo NF-e</div>
+                            </div>
+                            <div style="padding: 20px; border: 3px solid #e0e0e0; background: white; border-radius: 10px; cursor: pointer; text-align: center; font-weight: 600; color: #666; transition: all 0.3s;" id="btnPdf" onclick="selecionarTipo('pdf')">
+                                <span style="font-size: 32px; display: block; margin-bottom: 10px;">📑</span>
+                                <strong>PDF</strong>
+                                <div style="font-size: 12px; margin-top: 5px;">Documento digitalizado</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="xmlFile" id="labelArquivo">Arquivo XML da NF-e *</label>
+                        <input type="file" id="xmlFile" name="xmlFile" accept=".xml,.pdf" required>
                     </div>
 
                     <!-- Pré-visualização dos dados -->
