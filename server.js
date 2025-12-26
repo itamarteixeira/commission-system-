@@ -262,6 +262,20 @@ async function extrairDadosXML(xmlContent) {
       }));
     }
 
+    const valorTotal = parseFloat(total?.vNF || 0);
+
+    // Se não houver duplicatas e houver valor total, criar duplicata padrão
+    if (duplicatas.length === 0 && valorTotal > 0) {
+      const vencimento30dias = new Date();
+      vencimento30dias.setDate(vencimento30dias.getDate() + 30);
+      duplicatas.push({
+        numero: '001',
+        valor: valorTotal,
+        vencimento: vencimento30dias.toISOString().split('T')[0]
+      });
+      console.log('XML sem duplicatas: criada duplicata padrão com valor total da nota');
+    }
+
     return {
       numeroNota: ide.nNF,
       serie: ide.serie,
@@ -271,7 +285,7 @@ async function extrairDadosXML(xmlContent) {
       emitenteCnpj: emit.CNPJ,
       destinatarioNome: dest?.xNome || '',
       destinatarioCnpj: dest?.CNPJ || '',
-      valorTotal: parseFloat(total?.vNF || 0),
+      valorTotal: valorTotal,
       duplicatas: duplicatas
     };
   } catch (error) {
