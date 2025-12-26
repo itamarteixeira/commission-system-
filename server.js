@@ -196,12 +196,40 @@ app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
 
           Promise.all(promises)
             .then(() => {
-              fs.unlinkSync(req.file.path);
-              res.json({ 
-                success: true, 
-                message: 'XML importado com sucesso',
-                notaFiscalId: notaFiscalId,
-                quantidadeTitulos: dados.duplicatas.length
+              // Buscar os títulos criados para retornar
+              db.all(`
+                SELECT 
+                  tc.id,
+                  tc.valor_comissao,
+                  tc.percentual_comissao,
+                  nf.numero_nota,
+                  d.numero_duplicata,
+                  d.valor as valor_duplicata,
+                  d.vencimento
+                FROM titulos_comissao tc
+                JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
+                JOIN duplicatas d ON tc.duplicata_id = d.id
+                WHERE tc.nota_fiscal_id = ?
+                ORDER BY d.numero_duplicata
+              `, [notaFiscalId], (err, titulos) => {
+                fs.unlinkSync(req.file.path);
+                
+                if (err) {
+                  return res.json({ 
+                    success: true, 
+                    message: 'XML importado com sucesso',
+                    notaFiscalId: notaFiscalId,
+                    quantidadeTitulos: dados.duplicatas.length
+                  });
+                }
+
+                res.json({ 
+                  success: true, 
+                  message: 'XML importado com sucesso',
+                  notaFiscalId: notaFiscalId,
+                  quantidadeTitulos: dados.duplicatas.length,
+                  titulos: titulos
+                });
               });
             })
             .catch(error => {
@@ -217,6 +245,42 @@ app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
     }
     res.status(500).json({ error: error.message });
   }
+});
+
+// Atualizar valor de comissão de um título
+app.put('/api/titulos-comissao/:id', (req, res) => {
+  const tituloId = req.params.id;
+  const { valorComissao } = req.body;
+
+  if (!valorComissao || valorComissao < 0) {
+    return res.status(400).json({ error: 'Valor de comissão inválido' });
+  }
+
+  // Verificar se título não está em pedido
+  db.get('SELECT pedido_id FROM titulos_comissao WHERE id = ?', [tituloId], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao buscar título' });
+    }
+
+    if (!row) {
+      return res.status(404).json({ error: 'Título não encontrado' });
+    }
+
+    if (row.pedido_id) {
+      return res.status(400).json({ error: 'Não é possível editar título já vinculado a um pedido' });
+    }
+
+    // Atualizar valor
+    db.run('UPDATE titulos_comissao SET valor_comissao = ? WHERE id = ?',
+      [valorComissao, tituloId],
+      (err) => {
+        if (err) {
+          return res.status(500).json({ error: 'Erro ao atualizar título' });
+        }
+        res.json({ success: true, message: 'Valor atualizado com sucesso' });
+      }
+    );
+  });
 });
 
 // Listar notas fiscais
