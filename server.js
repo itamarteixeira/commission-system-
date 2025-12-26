@@ -4,127 +4,102 @@ const path = require('path');
 const fs = require('fs');
 const xml2js = require('xml2js');
 const pdfParse = require('pdf-parse');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 
-// Middleware
 app.use(express.json());
 app.use(express.static('public'));
 
-// Inicializar banco de dados
-const db = new sqlite3.Database('./commission.db', (err) => {
+// PostgreSQL Pool Connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
+});
+
+// Test connection
+pool.connect((err, client, release) => {
   if (err) {
-    console.error('Erro ao abrir banco de dados:', err);
+    console.error('❌ Erro ao conectar PostgreSQL:', err);
   } else {
-    console.log('Banco de dados conectado');
+    console.log('✅ PostgreSQL conectado com sucesso!');
+    release();
     initDatabase();
   }
 });
 
-function initDatabase() {
-  db.serialize(() => {
-    // Tabela de notas fiscais
-    db.run(`CREATE TABLE IF NOT EXISTS notas_fiscais (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      numero_nota TEXT NOT NULL,
-      serie TEXT,
-      data_emissao TEXT,
-      chave_acesso TEXT UNIQUE,
-      emitente_nome TEXT,
-      emitente_cnpj TEXT,
-      destinatario_nome TEXT,
-      destinatario_cnpj TEXT,
-      valor_total REAL,
-      xml_completo TEXT,
-      data_importacao TEXT DEFAULT CURRENT_TIMESTAMP
-    )`);
+// Initialize database tables
+async function initDatabase() {
+  const client = await pool.connect();
+  try {
+    console.log('📦 Criando tabelas PostgreSQL...');
+    
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notas_fiscais (
+        id SERIAL PRIMARY KEY,
+        numero_nota TEXT NOT NULL,
+        serie TEXT,
+        data_emissao TEXT,
+        chave_acesso TEXT UNIQUE,
+        emitente_nome TEXT,
+        emitente_cnpj TEXT,
+        destinatario_nome TEXT,
+        destinatario_cnpj TEXT,
+        valor_total DECIMAL(10,2),
+        xml_completo TEXT,
+        data_importacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-    // Tabela de duplicatas
-    db.run(`CREATE TABLE IF NOT EXISTS duplicatas (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      nota_fiscal_id INTEGER,
-      numero_duplicata TEXT,
-      valor REAL,
-      vencimento TEXT,
-      previsao_recebimento TEXT,
-      FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id) ON DELETE CASCADE
-    )`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS duplicatas (
+        id SERIAL PRIMARY KEY,
+        nota_fiscal_id INTEGER REFERENCES notas_fiscais(id) ON DELETE CASCADE,
+        numero_duplicata TEXT,
+        valor DECIMAL(10,2),
+        vencimento TEXT,
+        previsao_recebimento TEXT,
+        data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-    // Tabela de títulos de comissão
-    db.run(`CREATE TABLE IF NOT EXISTS titulos_comissao (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      duplicata_id INTEGER,
-      nota_fiscal_id INTEGER,
-      percentual_comissao REAL,
-      valor_comissao REAL,
-      status TEXT DEFAULT 'pendente',
-      status_pagamento TEXT DEFAULT 'pendente',
-      pedido_id INTEGER,
-      data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (duplicata_id) REFERENCES duplicatas(id) ON DELETE CASCADE,
-      FOREIGN KEY (nota_fiscal_id) REFERENCES notas_fiscais(id) ON DELETE CASCADE,
-      FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
-    )`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS titulos_comissao (
+        id SERIAL PRIMARY KEY,
+        duplicata_id INTEGER REFERENCES duplicatas(id) ON DELETE CASCADE,
+        nota_fiscal_id INTEGER REFERENCES notas_fiscais(id) ON DELETE CASCADE,
+        percentual_comissao DECIMAL(5,2),
+        valor_comissao DECIMAL(10,2),
+        status TEXT DEFAULT 'pendente',
+        status_pagamento TEXT DEFAULT 'pendente',
+        pedido_id INTEGER,
+        data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-    // Tabela de pedidos
-    db.run(`CREATE TABLE IF NOT EXISTS pedidos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      descricao TEXT,
-      valor_total REAL,
-      quantidade_titulos INTEGER,
-      status TEXT DEFAULT 'aberto',
-      data_criacao TEXT DEFAULT CURRENT_TIMESTAMP
-    )`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pedidos (
+        id SERIAL PRIMARY KEY,
+        valor_total DECIMAL(10,2),
+        quantidade_titulos INTEGER,
+        status TEXT DEFAULT 'pendente',
+        data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-    // Tabela de notas fiscais de serviço (NFS-e)
-    db.run(`CREATE TABLE IF NOT EXISTS notas_fiscais_servico (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      pedido_id INTEGER,
-      numero_nfse TEXT,
-      data_emissao TEXT,
-      valor REAL,
-      status_pagamento TEXT DEFAULT 'aguardando',
-      data_pagamento TEXT,
-      observacoes TEXT,
-      data_criacao TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
-    )`);
-
-    // Verificar e adicionar colunas novas se necessário (migração)
-    db.all("PRAGMA table_info(duplicatas)", [], (err, columns) => {
-      if (!err && columns) {
-        const hasPrevisao = columns.some(col => col.name === 'previsao_recebimento');
-        if (!hasPrevisao) {
-          db.run("ALTER TABLE duplicatas ADD COLUMN previsao_recebimento TEXT");
-        }
-      }
-    });
-
-    db.all("PRAGMA table_info(titulos_comissao)", [], (err, columns) => {
-      if (!err && columns) {
-        const hasStatusPagamento = columns.some(col => col.name === 'status_pagamento');
-        if (!hasStatusPagamento) {
-          db.run("ALTER TABLE titulos_comissao ADD COLUMN status_pagamento TEXT DEFAULT 'pendente'");
-        }
-      }
-    });
-  });
+    console.log('✅ Tabelas PostgreSQL criadas com sucesso!');
+  } catch (err) {
+    console.error('❌ Erro ao criar tabelas:', err);
+  } finally {
+    client.release();
+  }
 }
 
-// Função para calcular previsão de recebimento (dia 20 do mês seguinte ao vencimento)
 function calcularPrevisaoRecebimento(vencimento) {
-  if (!vencimento) return null;
-  
-  try {
-    const dataVenc = new Date(vencimento);
-    // Adicionar 1 mês
-    const mesProximo = new Date(dataVenc.getFullYear(), dataVenc.getMonth() + 1, 20);
-    return mesProximo.toISOString().split('T')[0];
-  } catch (error) {
-    return null;
-  }
+  const dataVenc = new Date(vencimento);
+  dataVenc.setDate(dataVenc.getDate() + 5);
+  return dataVenc.toISOString().split('T')[0];
 }
 
 // Função para extrair dados do PDF da NF-e
@@ -338,6 +313,45 @@ async function extrairDadosXML(xmlContent) {
       const vencimento30dias = new Date();
       vencimento30dias.setDate(vencimento30dias.getDate() + 30);
       duplicatas.push({
+
+// Função para extrair dados do XML da NF-e
+async function extrairDadosXML(xmlContent) {
+  const parser = new xml2js.Parser({ explicitArray: false });
+  
+  try {
+    const result = await parser.parseStringPromise(xmlContent);
+    
+    // Navegar pela estrutura do XML da NF-e
+    const nfe = result.nfeProc?.NFe?.infNFe || result.NFe?.infNFe;
+    
+    if (!nfe) {
+      throw new Error('Estrutura XML inválida');
+    }
+
+    const ide = nfe.ide;
+    const emit = nfe.emit;
+    const dest = nfe.dest;
+    const total = nfe.total?.ICMSTot;
+    const cobr = nfe.cobr;
+
+    // Extrair duplicatas
+    let duplicatas = [];
+    if (cobr?.dup) {
+      const dups = Array.isArray(cobr.dup) ? cobr.dup : [cobr.dup];
+      duplicatas = dups.map(dup => ({
+        numero: dup.nDup,
+        valor: parseFloat(dup.vDup),
+        vencimento: dup.dVenc
+      }));
+    }
+
+    const valorTotal = parseFloat(total?.vNF || 0);
+
+    // Se não houver duplicatas e houver valor total, criar duplicata padrão
+    if (duplicatas.length === 0 && valorTotal > 0) {
+      const vencimento30dias = new Date();
+      vencimento30dias.setDate(vencimento30dias.getDate() + 30);
+      duplicatas.push({
         numero: '001',
         valor: valorTotal,
         vencimento: vencimento30dias.toISOString().split('T')[0]
@@ -363,317 +377,280 @@ async function extrairDadosXML(xmlContent) {
   }
 }
 
-// Rota para importar XML
-app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Nenhum arquivo enviado' });
-    }
 
-    const percentualComissao = parseFloat(req.body.percentualComissao);
-    
-    if (!percentualComissao || percentualComissao <= 0 || percentualComissao > 100) {
-      return res.status(400).json({ error: 'Percentual de comissão inválido' });
-    }
+// ==========================================
+// ROTAS API - PostgreSQL
+// ==========================================
 
-    // Ler arquivo XML
-    const xmlContent = fs.readFileSync(req.file.path, 'utf-8');
-    
-    // Extrair dados
-    const dados = await extrairDadosXML(xmlContent);
-
-    // Verificar se nota já existe
-    db.get('SELECT id FROM notas_fiscais WHERE chave_acesso = ?', [dados.chaveAcesso], (err, row) => {
-      if (row) {
-        fs.unlinkSync(req.file.path);
-        return res.status(400).json({ error: 'Nota fiscal já importada' });
-      }
-
-      // Inserir nota fiscal
-      db.run(`INSERT INTO notas_fiscais 
-        (numero_nota, serie, data_emissao, chave_acesso, emitente_nome, emitente_cnpj, 
-         destinatario_nome, destinatario_cnpj, valor_total, xml_completo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [dados.numeroNota, dados.serie, dados.dataEmissao, dados.chaveAcesso,
-         dados.emitenteNome, dados.emitenteCnpj, dados.destinatarioNome,
-         dados.destinatarioCnpj, dados.valorTotal, xmlContent],
-        function(err) {
-          if (err) {
-            fs.unlinkSync(req.file.path);
-            return res.status(500).json({ error: 'Erro ao salvar nota fiscal' });
-          }
-
-          const notaFiscalId = this.lastID;
-
-          // Inserir duplicatas e títulos de comissão
-          const promises = dados.duplicatas.map(dup => {
-            return new Promise((resolve, reject) => {
-              const previsaoRecebimento = calcularPrevisaoRecebimento(dup.vencimento);
-              
-              db.run(`INSERT INTO duplicatas (nota_fiscal_id, numero_duplicata, valor, vencimento, previsao_recebimento)
-                      VALUES (?, ?, ?, ?, ?)`,
-                [notaFiscalId, dup.numero, dup.valor, dup.vencimento, previsaoRecebimento],
-                function(err) {
-                  if (err) return reject(err);
-                  
-                  const duplicataId = this.lastID;
-                  const valorComissao = (dup.valor * percentualComissao) / 100;
-
-                  db.run(`INSERT INTO titulos_comissao 
-                          (duplicata_id, nota_fiscal_id, percentual_comissao, valor_comissao, status_pagamento)
-                          VALUES (?, ?, ?, ?, 'pendente')`,
-                    [duplicataId, notaFiscalId, percentualComissao, valorComissao],
-                    (err) => {
-                      if (err) return reject(err);
-                      resolve();
-                    }
-                  );
-                }
-              );
-            });
-          });
-
-          Promise.all(promises)
-            .then(() => {
-              // Buscar os títulos criados para retornar
-              db.all(`
-                SELECT 
-                  tc.id,
-                  tc.valor_comissao,
-                  tc.percentual_comissao,
-                  tc.status_pagamento,
-                  nf.numero_nota,
-                  nf.destinatario_nome as cliente_nome,
-                  d.numero_duplicata,
-                  d.valor as valor_duplicata,
-                  d.vencimento,
-                  d.previsao_recebimento
-                FROM titulos_comissao tc
-                JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
-                JOIN duplicatas d ON tc.duplicata_id = d.id
-                WHERE tc.nota_fiscal_id = ?
-                ORDER BY d.numero_duplicata
-              `, [notaFiscalId], (err, titulos) => {
-                fs.unlinkSync(req.file.path);
-                
-                if (err) {
-                  return res.json({ 
-                    success: true, 
-                    message: 'XML importado com sucesso',
-                    notaFiscalId: notaFiscalId,
-                    quantidadeTitulos: dados.duplicatas.length
-                  });
-                }
-
-                res.json({ 
-                  success: true, 
-                  message: 'XML importado com sucesso',
-                  notaFiscalId: notaFiscalId,
-                  quantidadeTitulos: dados.duplicatas.length,
-                  titulos: titulos
-                });
-              });
-            })
-            .catch(error => {
-              fs.unlinkSync(req.file.path);
-              res.status(500).json({ error: 'Erro ao criar títulos de comissão' });
-            });
-        }
-      );
-    });
-  } catch (error) {
-    if (req.file) {
-      fs.unlinkSync(req.file.path);
-    }
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Rota para fazer preview do PDF (não salva no banco)
+// Preview PDF
 app.post('/api/preview-pdf', upload.single('pdfFile'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Nenhum arquivo enviado' });
-    }
-
-    // Ler arquivo PDF
+    if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    
     const pdfBuffer = fs.readFileSync(req.file.path);
-    
-    // Extrair dados
     const dados = await extrairDadosPDF(pdfBuffer);
-    
-    // Deletar arquivo temporário
     fs.unlinkSync(req.file.path);
     
-    // Retornar dados extraídos para preview
-    res.json({
-      success: true,
-      dados: dados
-    });
-    
+    res.json({ success: true, dados });
   } catch (error) {
-    console.error('Erro ao fazer preview do PDF:', error);
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    res.status(500).json({ error: 'Erro ao processar PDF: ' + error.message });
-  }
-});
-
-// Rota para importar PDF (agora recebe dados já extraídos)
-app.post('/api/importar-pdf', upload.single('pdfFile'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Nenhum arquivo enviado' });
-    }
-
-    const percentualComissao = parseFloat(req.body.percentualComissao);
-    
-    if (!percentualComissao || percentualComissao <= 0 || percentualComissao > 100) {
-      return res.status(400).json({ error: 'Percentual de comissão inválido' });
-    }
-
-    // Ler arquivo PDF
-    const pdfBuffer = fs.readFileSync(req.file.path);
-    
-    // Extrair dados
-    const dados = await extrairDadosPDF(pdfBuffer);
-
-    // Verificar se nota já existe (se tiver chave de acesso)
-    if (dados.chaveAcesso) {
-      db.get('SELECT id FROM notas_fiscais WHERE chave_acesso = ?', [dados.chaveAcesso], (err, row) => {
-        if (row) {
-          fs.unlinkSync(req.file.path);
-          return res.status(400).json({ error: 'Nota fiscal já importada' });
-        }
-        salvarNotaPDF();
-      });
-    } else {
-      salvarNotaPDF();
-    }
-
-    function salvarNotaPDF() {
-      // Inserir nota fiscal
-      db.run(`INSERT INTO notas_fiscais 
-        (numero_nota, serie, data_emissao, chave_acesso, emitente_nome, emitente_cnpj, 
-         destinatario_nome, destinatario_cnpj, valor_total, xml_completo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [dados.numeroNota, dados.serie, dados.dataEmissao, dados.chaveAcesso,
-         dados.emitenteNome, dados.emitenteCnpj, dados.destinatarioNome,
-         dados.destinatarioCnpj, dados.valorTotal, 'PDF_IMPORT'],
-        function(err) {
-          if (err) {
-            fs.unlinkSync(req.file.path);
-            return res.status(500).json({ error: 'Erro ao salvar nota fiscal' });
-          }
-
-          const notaFiscalId = this.lastID;
-
-          // Inserir duplicatas e títulos de comissão
-          const promises = dados.duplicatas.map(dup => {
-            return new Promise((resolve, reject) => {
-              const previsaoRecebimento = calcularPrevisaoRecebimento(dup.vencimento);
-              
-              db.run(`INSERT INTO duplicatas (nota_fiscal_id, numero_duplicata, valor, vencimento, previsao_recebimento)
-                      VALUES (?, ?, ?, ?, ?)`,
-                [notaFiscalId, dup.numero, dup.valor, dup.vencimento, previsaoRecebimento],
-                function(err) {
-                  if (err) return reject(err);
-                  
-                  const duplicataId = this.lastID;
-                  const valorComissao = (dup.valor * percentualComissao) / 100;
-
-                  db.run(`INSERT INTO titulos_comissao 
-                          (duplicata_id, nota_fiscal_id, percentual_comissao, valor_comissao, status_pagamento)
-                          VALUES (?, ?, ?, ?, 'pendente')`,
-                    [duplicataId, notaFiscalId, percentualComissao, valorComissao],
-                    (err) => {
-                      if (err) return reject(err);
-                      resolve();
-                    }
-                  );
-                }
-              );
-            });
-          });
-
-          Promise.all(promises)
-            .then(() => {
-              // Buscar os títulos criados
-              db.all(`
-                SELECT 
-                  tc.id,
-                  tc.valor_comissao,
-                  tc.percentual_comissao,
-                  tc.status_pagamento,
-                  nf.numero_nota,
-                  nf.destinatario_nome as cliente_nome,
-                  d.numero_duplicata,
-                  d.valor as valor_duplicata,
-                  d.vencimento,
-                  d.previsao_recebimento
-                FROM titulos_comissao tc
-                JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
-                JOIN duplicatas d ON tc.duplicata_id = d.id
-                WHERE tc.nota_fiscal_id = ?
-                ORDER BY d.numero_duplicata
-              `, [notaFiscalId], (err, titulos) => {
-                fs.unlinkSync(req.file.path);
-                
-                res.json({ 
-                  success: true, 
-                  message: 'PDF importado com sucesso',
-                  notaFiscalId: notaFiscalId,
-                  quantidadeTitulos: dados.duplicatas.length,
-                  titulos: titulos || []
-                });
-              });
-            })
-            .catch(error => {
-              fs.unlinkSync(req.file.path);
-              res.status(500).json({ error: 'Erro ao criar títulos de comissão' });
-            });
-        }
-      );
-    }
-  } catch (error) {
-    if (req.file) {
-      fs.unlinkSync(req.file.path);
-    }
+    console.error('Erro preview PDF:', error);
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Atualizar valor de comissão de um título
-app.put('/api/titulos-comissao/:id', (req, res) => {
-  const tituloId = req.params.id;
-  const { valorComissao, statusPagamento } = req.body;
-
-  // Verificar se título não está em pedido
-  db.get('SELECT pedido_id FROM titulos_comissao WHERE id = ?', [tituloId], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao buscar título' });
+// Importar PDF
+app.post('/api/importar-pdf', upload.single('pdfFile'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    
+    const percentualComissao = parseFloat(req.body.percentualComissao);
+    if (!percentualComissao || percentualComissao <= 0 || percentualComissao > 100) {
+      return res.status(400).json({ error: 'Percentual inválido' });
     }
 
-    if (!row) {
+    const pdfBuffer = fs.readFileSync(req.file.path);
+    const dados = await extrairDadosPDF(pdfBuffer);
+
+    // Verifica duplicata
+    if (dados.chaveAcesso) {
+      const check = await client.query('SELECT id FROM notas_fiscais WHERE chave_acesso = $1', [dados.chaveAcesso]);
+      if (check.rows.length > 0) {
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'Nota já importada' });
+      }
+    }
+
+    // Inserir nota
+    const notaResult = await client.query(
+      `INSERT INTO notas_fiscais (numero_nota, serie, data_emissao, chave_acesso, emitente_nome, emitente_cnpj, destinatario_nome, destinatario_cnpj, valor_total, xml_completo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+      [dados.numeroNota, dados.serie, dados.dataEmissao, dados.chaveAcesso, dados.emitenteNome, dados.emitenteCnpj, dados.destinatarioNome, dados.destinatarioCnpj, dados.valorTotal, 'PDF_IMPORT']
+    );
+    
+    const notaFiscalId = notaResult.rows[0].id;
+    const titulos = [];
+
+    // Inserir duplicatas e títulos
+    for (const dup of dados.duplicatas) {
+      const previsaoRecebimento = calcularPrevisaoRecebimento(dup.vencimento);
+      
+      const dupResult = await client.query(
+        `INSERT INTO duplicatas (nota_fiscal_id, numero_duplicata, valor, vencimento, previsao_recebimento)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [notaFiscalId, dup.numero, dup.valor, dup.vencimento, previsaoRecebimento]
+      );
+      
+      const duplicataId = dupResult.rows[0].id;
+      const valorComissao = (dup.valor * percentualComissao) / 100;
+
+      const tituloResult = await client.query(
+        `INSERT INTO titulos_comissao (duplicata_id, nota_fiscal_id, percentual_comissao, valor_comissao)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [duplicataId, notaFiscalId, percentualComissao, valorComissao]
+      );
+
+      titulos.push({
+        id: tituloResult.rows[0].id,
+        numero_duplicata: dup.numero,
+        valor_duplicata: dup.valor,
+        vencimento: dup.vencimento,
+        percentual_comissao: percentualComissao,
+        valor_comissao: valorComissao
+      });
+    }
+
+    fs.unlinkSync(req.file.path);
+    res.json({
+      success: true,
+      message: 'PDF importado com sucesso',
+      quantidadeTitulos: titulos.length,
+      titulos
+    });
+
+  } catch (error) {
+    console.error('Erro ao importar PDF:', error);
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Importar XML
+app.post('/api/importar-xml', upload.single('xmlFile'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado' });
+    
+    const percentualComissao = parseFloat(req.body.percentualComissao);
+    if (!percentualComissao || percentualComissao <= 0 || percentualComissao > 100) {
+      return res.status(400).json({ error: 'Percentual inválido' });
+    }
+
+    const xmlContent = fs.readFileSync(req.file.path, 'utf-8');
+    const dados = await extrairDadosXML(xmlContent);
+
+    // Verifica duplicata
+    const check = await client.query('SELECT id FROM notas_fiscais WHERE chave_acesso = $1', [dados.chaveAcesso]);
+    if (check.rows.length > 0) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: 'Nota já importada' });
+    }
+
+    // Inserir nota
+    const notaResult = await client.query(
+      `INSERT INTO notas_fiscais (numero_nota, serie, data_emissao, chave_acesso, emitente_nome, emitente_cnpj, destinatario_nome, destinatario_cnpj, valor_total, xml_completo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+      [dados.numeroNota, dados.serie, dados.dataEmissao, dados.chaveAcesso, dados.emitenteNome, dados.emitenteCnpj, dados.destinatarioNome, dados.destinatarioCnpj, dados.valorTotal, xmlContent]
+    );
+    
+    const notaFiscalId = notaResult.rows[0].id;
+    const titulos = [];
+
+    // Inserir duplicatas e títulos
+    for (const dup of dados.duplicatas) {
+      const previsaoRecebimento = calcularPrevisaoRecebimento(dup.vencimento);
+      
+      const dupResult = await client.query(
+        `INSERT INTO duplicatas (nota_fiscal_id, numero_duplicata, valor, vencimento, previsao_recebimento)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [notaFiscalId, dup.numero, dup.valor, dup.vencimento, previsaoRecebimento]
+      );
+      
+      const duplicataId = dupResult.rows[0].id;
+      const valorComissao = (dup.valor * percentualComissao) / 100;
+
+      const tituloResult = await client.query(
+        `INSERT INTO titulos_comissao (duplicata_id, nota_fiscal_id, percentual_comissao, valor_comissao)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [duplicataId, notaFiscalId, percentualComissao, valorComissao]
+      );
+
+      titulos.push({
+        id: tituloResult.rows[0].id,
+        numero_duplicata: dup.numero,
+        valor_duplicata: dup.valor,
+        vencimento: dup.vencimento,
+        percentual_comissao: percentualComissao,
+        valor_comissao: valorComissao
+      });
+    }
+
+    fs.unlinkSync(req.file.path);
+    res.json({
+      success: true,
+      message: 'XML importado com sucesso',
+      quantidadeTitulos: titulos.length,
+      titulos
+    });
+
+  } catch (error) {
+    console.error('Erro ao importar XML:', error);
+    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Dashboard
+app.get('/api/dashboard', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const notasResult = await client.query('SELECT COUNT(*) as total, COALESCE(SUM(valor_total), 0) as valor FROM notas_fiscais');
+    const titulosResult = await client.query('SELECT COUNT(*) as total, COALESCE(SUM(valor_comissao), 0) as valor, COUNT(CASE WHEN status = $1 THEN 1 END) as pendentes FROM titulos_comissao', ['pendente']);
+    const pedidosResult = await client.query('SELECT COUNT(*) as total, COALESCE(SUM(valor_total), 0) as valor FROM pedidos');
+
+    res.json({
+      notasFiscais: { total: parseInt(notasResult.rows[0].total), valor: parseFloat(notasResult.rows[0].valor) },
+      titulosComissao: { total: parseInt(titulosResult.rows[0].total), valor: parseFloat(titulosResult.rows[0].valor), pendentes: parseInt(titulosResult.rows[0].pendentes) },
+      pedidos: { total: parseInt(pedidosResult.rows[0].total), valor: parseFloat(pedidosResult.rows[0].valor) }
+    });
+  } catch (error) {
+    console.error('Erro dashboard:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Listar títulos
+app.get('/api/titulos-comissao', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(`
+      SELECT tc.id, tc.valor_comissao, tc.percentual_comissao, tc.status, tc.status_pagamento, tc.pedido_id, tc.data_criacao,
+             nf.numero_nota, nf.emitente_nome, nf.destinatario_nome as cliente_nome,
+             d.numero_duplicata, d.valor as valor_duplicata, d.vencimento, d.previsao_recebimento
+      FROM titulos_comissao tc
+      JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
+      JOIN duplicatas d ON tc.duplicata_id = d.id
+      ORDER BY tc.data_criacao DESC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Erro listar títulos:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Buscar título por ID
+app.get('/api/titulos-comissao/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(`
+      SELECT tc.*, nf.numero_nota, nf.emitente_nome, nf.destinatario_nome as cliente_nome,
+             d.numero_duplicata, d.valor as valor_duplicata, d.vencimento, d.previsao_recebimento
+      FROM titulos_comissao tc
+      JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
+      JOIN duplicatas d ON tc.duplicata_id = d.id
+      WHERE tc.id = $1
+    `, [req.params.id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Título não encontrado' });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Erro buscar título:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Atualizar título
+app.put('/api/titulos-comissao/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { valorComissao, statusPagamento } = req.body;
+    const tituloId = req.params.id;
+
+    // Verificar se título existe e se tem pedido
+    const check = await client.query('SELECT pedido_id FROM titulos_comissao WHERE id = $1', [tituloId]);
+    if (check.rows.length === 0) {
       return res.status(404).json({ error: 'Título não encontrado' });
     }
 
-    if (row.pedido_id && valorComissao !== undefined) {
-      return res.status(400).json({ error: 'Não é possível editar valor de título já vinculado a um pedido' });
+    if (check.rows[0].pedido_id && valorComissao !== undefined) {
+      return res.status(400).json({ error: 'Não é possível editar valor de título em pedido' });
     }
 
-    // Preparar campos para atualização
-    let updates = [];
-    let values = [];
+    const updates = [];
+    const values = [];
+    let paramCount = 1;
 
-    if (valorComissao !== undefined && valorComissao >= 0) {
-      updates.push('valor_comissao = ?');
+    if (valorComissao !== undefined) {
+      updates.push(`valor_comissao = $${paramCount++}`);
       values.push(valorComissao);
     }
 
-    if (statusPagamento !== undefined) {
-      updates.push('status_pagamento = ?');
+    if (statusPagamento) {
+      updates.push(`status_pagamento = $${paramCount++}`);
       values.push(statusPagamento);
     }
 
@@ -682,407 +659,150 @@ app.put('/api/titulos-comissao/:id', (req, res) => {
     }
 
     values.push(tituloId);
-    const sql = `UPDATE titulos_comissao SET ${updates.join(', ')} WHERE id = ?`;
+    await client.query(`UPDATE titulos_comissao SET ${updates.join(', ')} WHERE id = $${paramCount}`, values);
 
-    db.run(sql, values, (err) => {
-      if (err) {
-        return res.status(500).json({ error: 'Erro ao atualizar título' });
-      }
-      res.json({ success: true, message: 'Título atualizado com sucesso' });
-    });
-  });
-});
-
-// Obter detalhes de um título específico
-app.get('/api/titulos-comissao/:id', (req, res) => {
-  const tituloId = req.params.id;
-  
-  const sql = `
-    SELECT 
-      tc.*,
-      nf.numero_nota,
-      nf.emitente_nome,
-      nf.destinatario_nome as cliente_nome,
-      d.numero_duplicata,
-      d.valor as valor_duplicata,
-      d.vencimento,
-      d.previsao_recebimento
-    FROM titulos_comissao tc
-    JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
-    JOIN duplicatas d ON tc.duplicata_id = d.id
-    WHERE tc.id = ?
-  `;
-  
-  db.get(sql, [tituloId], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao buscar título' });
-    }
-    if (!row) {
-      return res.status(404).json({ error: 'Título não encontrado' });
-    }
-    res.json(row);
-  });
-});
-
-// Excluir nota fiscal e todos os títulos vinculados
-app.delete('/api/notas-fiscais/:id', (req, res) => {
-  const notaId = req.params.id;
-
-  // Verificar se há títulos em pedidos
-  db.get(`
-    SELECT COUNT(*) as count 
-    FROM titulos_comissao 
-    WHERE nota_fiscal_id = ? AND pedido_id IS NOT NULL
-  `, [notaId], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao verificar títulos' });
-    }
-
-    if (row.count > 0) {
-      return res.status(400).json({ 
-        error: 'Não é possível excluir. Existem títulos desta nota vinculados a pedidos.' 
-      });
-    }
-
-    // Excluir nota (CASCADE deletará duplicatas e títulos automaticamente)
-    db.run('DELETE FROM notas_fiscais WHERE id = ?', [notaId], function(err) {
-      if (err) {
-        return res.status(500).json({ error: 'Erro ao excluir nota fiscal' });
-      }
-
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Nota fiscal não encontrada' });
-      }
-
-      res.json({ 
-        success: true, 
-        message: 'Nota fiscal e títulos excluídos com sucesso' 
-      });
-    });
-  });
-});
-
-// Listar notas fiscais
-app.get('/api/notas-fiscais', (req, res) => {
-  db.all(`SELECT id, numero_nota, serie, data_emissao, emitente_nome, 
-          destinatario_nome, valor_total, data_importacao
-          FROM notas_fiscais ORDER BY data_importacao DESC`, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao buscar notas fiscais' });
-    }
-    res.json(rows);
-  });
-});
-
-// Listar títulos de comissão
-app.get('/api/titulos-comissao', (req, res) => {
-  const sql = `
-    SELECT 
-      tc.id,
-      tc.valor_comissao,
-      tc.percentual_comissao,
-      tc.status,
-      tc.status_pagamento,
-      tc.pedido_id,
-      tc.data_criacao,
-      nf.numero_nota,
-      nf.emitente_nome,
-      nf.destinatario_nome as cliente_nome,
-      d.numero_duplicata,
-      d.valor as valor_duplicata,
-      d.vencimento,
-      d.previsao_recebimento
-    FROM titulos_comissao tc
-    JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
-    JOIN duplicatas d ON tc.duplicata_id = d.id
-    ORDER BY tc.data_criacao DESC
-  `;
-  
-  db.all(sql, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao buscar títulos' });
-    }
-    res.json(rows);
-  });
-});
-
-// Criar pedido com títulos selecionados
-app.post('/api/pedidos', (req, res) => {
-  const { descricao, titulosIds } = req.body;
-
-  if (!titulosIds || titulosIds.length === 0) {
-    return res.status(400).json({ error: 'Selecione pelo menos um título' });
+    res.json({ success: true, message: 'Título atualizado' });
+  } catch (error) {
+    console.error('Erro atualizar título:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
+});
 
-  // Buscar valor total dos títulos
-  const placeholders = titulosIds.map(() => '?').join(',');
-  db.all(`SELECT SUM(valor_comissao) as total FROM titulos_comissao 
-          WHERE id IN (${placeholders}) AND pedido_id IS NULL`,
-    titulosIds, (err, rows) => {
-      if (err) {
-        return res.status(500).json({ error: 'Erro ao calcular total' });
-      }
+// Criar pedido
+app.post('/api/pedidos', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { titulosIds } = req.body;
 
-      const valorTotal = rows[0].total || 0;
-
-      // Criar pedido
-      db.run(`INSERT INTO pedidos (descricao, valor_total, quantidade_titulos)
-              VALUES (?, ?, ?)`,
-        [descricao, valorTotal, titulosIds.length],
-        function(err) {
-          if (err) {
-            return res.status(500).json({ error: 'Erro ao criar pedido' });
-          }
-
-          const pedidoId = this.lastID;
-
-          // Atualizar títulos com o pedido_id
-          db.run(`UPDATE titulos_comissao SET pedido_id = ?, status = 'em_pedido'
-                  WHERE id IN (${placeholders})`,
-            [pedidoId, ...titulosIds],
-            (err) => {
-              if (err) {
-                return res.status(500).json({ error: 'Erro ao vincular títulos' });
-              }
-
-              res.json({ 
-                success: true, 
-                pedidoId: pedidoId,
-                message: 'Pedido criado com sucesso'
-              });
-            }
-          );
-        }
-      );
+    if (!Array.isArray(titulosIds) || titulosIds.length === 0) {
+      return res.status(400).json({ error: 'IDs de títulos inválidos' });
     }
-  );
+
+    await client.query('BEGIN');
+
+    // Verificar títulos
+    const placeholders = titulosIds.map((_, i) => `$${i + 1}`).join(',');
+    const check = await client.query(`SELECT id, valor_comissao, status, pedido_id FROM titulos_comissao WHERE id IN (${placeholders})`, titulosIds);
+
+    if (check.rows.length !== titulosIds.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Um ou mais títulos não encontrados' });
+    }
+
+    const tituloEmPedido = check.rows.find(t => t.pedido_id);
+    if (tituloEmPedido) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Um ou mais títulos já estão em pedido' });
+    }
+
+    const valorTotal = check.rows.reduce((sum, t) => sum + parseFloat(t.valor_comissao), 0);
+
+    // Criar pedido
+    const pedidoResult = await client.query(
+      'INSERT INTO pedidos (valor_total, quantidade_titulos) VALUES ($1, $2) RETURNING id',
+      [valorTotal, titulosIds.length]
+    );
+
+    const pedidoId = pedidoResult.rows[0].id;
+
+    // Atualizar títulos
+    await client.query(`UPDATE titulos_comissao SET status = $1, pedido_id = $2 WHERE id IN (${placeholders})`, ['em_pedido', pedidoId, ...titulosIds]);
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: 'Pedido criado com sucesso',
+      pedidoId,
+      valorTotal,
+      quantidadeTitulos: titulosIds.length
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Erro criar pedido:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
 });
 
 // Listar pedidos
-app.get('/api/pedidos', (req, res) => {
-  db.all(`SELECT * FROM pedidos ORDER BY data_criacao DESC`, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao buscar pedidos' });
-    }
-    res.json(rows);
-  });
+app.get('/api/pedidos', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query('SELECT * FROM pedidos ORDER BY data_criacao DESC');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Erro listar pedidos:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
 });
 
-// Detalhes do pedido
-app.get('/api/pedidos/:id', (req, res) => {
-  const pedidoId = req.params.id;
-
-  db.get('SELECT * FROM pedidos WHERE id = ?', [pedidoId], (err, pedido) => {
-    if (err || !pedido) {
+// Buscar pedido por ID
+app.get('/api/pedidos/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const pedidoResult = await client.query('SELECT * FROM pedidos WHERE id = $1', [req.params.id]);
+    if (pedidoResult.rows.length === 0) {
       return res.status(404).json({ error: 'Pedido não encontrado' });
     }
 
-    db.all(`
-      SELECT 
-        tc.*,
-        nf.numero_nota,
-        nf.emitente_nome,
-        d.numero_duplicata,
-        d.valor as valor_duplicata
+    const titulosResult = await client.query(`
+      SELECT tc.*, nf.numero_nota, nf.emitente_nome, d.numero_duplicata, d.valor as valor_duplicata, d.vencimento
       FROM titulos_comissao tc
       JOIN notas_fiscais nf ON tc.nota_fiscal_id = nf.id
       JOIN duplicatas d ON tc.duplicata_id = d.id
-      WHERE tc.pedido_id = ?
-    `, [pedidoId], (err, titulos) => {
-      if (err) {
-        return res.status(500).json({ error: 'Erro ao buscar títulos' });
-      }
+      WHERE tc.pedido_id = $1
+    `, [req.params.id]);
 
-      res.json({
-        pedido: pedido,
-        titulos: titulos
-      });
+    res.json({
+      pedido: pedidoResult.rows[0],
+      titulos: titulosResult.rows
     });
-  });
-});
-
-// ========== ROTAS PARA NOTAS FISCAIS DE SERVIÇO (NFS-e) ==========
-
-// Listar todas as NFS-e
-app.get('/api/nfse', (req, res) => {
-  const sql = `
-    SELECT 
-      nfse.*,
-      p.descricao as pedido_descricao,
-      p.valor_total as pedido_valor
-    FROM notas_fiscais_servico nfse
-    LEFT JOIN pedidos p ON nfse.pedido_id = p.id
-    ORDER BY nfse.data_criacao DESC
-  `;
-  
-  db.all(sql, [], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao buscar NFS-e' });
-    }
-    res.json(rows);
-  });
-});
-
-// Obter detalhes de uma NFS-e
-app.get('/api/nfse/:id', (req, res) => {
-  const nfseId = req.params.id;
-  
-  const sql = `
-    SELECT 
-      nfse.*,
-      p.descricao as pedido_descricao,
-      p.valor_total as pedido_valor,
-      p.quantidade_titulos
-    FROM notas_fiscais_servico nfse
-    LEFT JOIN pedidos p ON nfse.pedido_id = p.id
-    WHERE nfse.id = ?
-  `;
-  
-  db.get(sql, [nfseId], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao buscar NFS-e' });
-    }
-    if (!row) {
-      return res.status(404).json({ error: 'NFS-e não encontrada' });
-    }
-    res.json(row);
-  });
-});
-
-// Criar nova NFS-e
-app.post('/api/nfse', (req, res) => {
-  const { pedidoId, numeroNfse, dataEmissao, valor, statusPagamento, observacoes } = req.body;
-
-  if (!numeroNfse || !dataEmissao || !valor) {
-    return res.status(400).json({ error: 'Número, data de emissão e valor são obrigatórios' });
-  }
-
-  // Verificar se pedido existe (se informado)
-  if (pedidoId) {
-    db.get('SELECT id FROM pedidos WHERE id = ?', [pedidoId], (err, row) => {
-      if (err || !row) {
-        return res.status(400).json({ error: 'Pedido não encontrado' });
-      }
-      inserirNfse();
-    });
-  } else {
-    inserirNfse();
-  }
-
-  function inserirNfse() {
-    db.run(`
-      INSERT INTO notas_fiscais_servico 
-      (pedido_id, numero_nfse, data_emissao, valor, status_pagamento, observacoes)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [pedidoId || null, numeroNfse, dataEmissao, valor, statusPagamento || 'aguardando', observacoes || ''],
-    function(err) {
-      if (err) {
-        return res.status(500).json({ error: 'Erro ao criar NFS-e' });
-      }
-      res.json({ 
-        success: true, 
-        id: this.lastID,
-        message: 'NFS-e criada com sucesso' 
-      });
-    });
+  } catch (error) {
+    console.error('Erro buscar pedido:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 
-// Atualizar NFS-e
-app.put('/api/nfse/:id', (req, res) => {
-  const nfseId = req.params.id;
-  const { pedidoId, numeroNfse, dataEmissao, valor, statusPagamento, dataPagamento, observacoes } = req.body;
-
-  let updates = [];
-  let values = [];
-
-  if (pedidoId !== undefined) {
-    updates.push('pedido_id = ?');
-    values.push(pedidoId || null);
+// Listar notas fiscais
+app.get('/api/notas-fiscais', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query('SELECT * FROM notas_fiscais ORDER BY data_importacao DESC');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Erro listar notas:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
-  if (numeroNfse) {
-    updates.push('numero_nfse = ?');
-    values.push(numeroNfse);
-  }
-  if (dataEmissao) {
-    updates.push('data_emissao = ?');
-    values.push(dataEmissao);
-  }
-  if (valor !== undefined) {
-    updates.push('valor = ?');
-    values.push(valor);
-  }
-  if (statusPagamento) {
-    updates.push('status_pagamento = ?');
-    values.push(statusPagamento);
-  }
-  if (dataPagamento !== undefined) {
-    updates.push('data_pagamento = ?');
-    values.push(dataPagamento || null);
-  }
-  if (observacoes !== undefined) {
-    updates.push('observacoes = ?');
-    values.push(observacoes);
-  }
-
-  if (updates.length === 0) {
-    return res.status(400).json({ error: 'Nenhum campo para atualizar' });
-  }
-
-  values.push(nfseId);
-  const sql = `UPDATE notas_fiscais_servico SET ${updates.join(', ')} WHERE id = ?`;
-
-  db.run(sql, values, function(err) {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao atualizar NFS-e' });
-    }
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'NFS-e não encontrada' });
-    }
-    res.json({ success: true, message: 'NFS-e atualizada com sucesso' });
-  });
 });
 
-// Excluir NFS-e
-app.delete('/api/nfse/:id', (req, res) => {
-  const nfseId = req.params.id;
-
-  db.run('DELETE FROM notas_fiscais_servico WHERE id = ?', [nfseId], function(err) {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao excluir NFS-e' });
-    }
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'NFS-e não encontrada' });
-    }
-    res.json({ success: true, message: 'NFS-e excluída com sucesso' });
-  });
+// Deletar nota fiscal
+app.delete('/api/notas-fiscais/:id', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('DELETE FROM notas_fiscais WHERE id = $1', [req.params.id]);
+    res.json({ success: true, message: 'Nota fiscal excluída' });
+  } catch (error) {
+    console.error('Erro deletar nota:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
 });
 
-// Dashboard - Estatísticas
-app.get('/api/dashboard', (req, res) => {
-  const stats = {};
-
-  db.get('SELECT COUNT(*) as total, SUM(valor_total) as valor FROM notas_fiscais', 
-    [], (err, nfStats) => {
-      stats.notasFiscais = nfStats;
-
-      db.get(`SELECT COUNT(*) as total, SUM(valor_comissao) as valor, 
-              COUNT(CASE WHEN status = 'pendente' THEN 1 END) as pendentes
-              FROM titulos_comissao`, [], (err, tcStats) => {
-        stats.titulosComissao = tcStats;
-
-        db.get(`SELECT COUNT(*) as total, SUM(valor_total) as valor,
-                COUNT(CASE WHEN status = 'aberto' THEN 1 END) as abertos
-                FROM pedidos`, [], (err, pedStats) => {
-          stats.pedidos = pedStats;
-
-          res.json(stats);
-        });
-      });
-    });
-});
-
+// Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
+  console.log(`🚀 Servidor rodando na porta ${PORT}`);
 });
+
