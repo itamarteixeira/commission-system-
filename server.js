@@ -133,32 +133,99 @@ async function extrairDadosPDF(pdfBuffer) {
     const data = await pdfParse(pdfBuffer);
     const text = data.text;
     
-    console.log('PDF Text Length:', text.length);
+    console.log('=== INÍCIO EXTRAÇÃO PDF ===');
+    console.log('Tamanho do texto:', text.length);
+    console.log('Primeiros 500 caracteres:', text.substring(0, 500));
+    console.log('===========================');
 
-    // Extrair informações usando regex mais flexíveis
-    const numeroNotaMatch = text.match(/(?:NOTA FISCAL|NF-e|N[ºª°]?\.?\s*(?:FISCAL)?)\s*[\s:]*(\d{6,})/i);
-    const serieMatch = text.match(/(?:S[ÉE]RIE|SERIE)\s*[\s:]*(\d+)/i);
-    const dataEmissaoMatch = text.match(/(?:EMISS[ÃA]O|DATA\s*(?:DE\s*)?EMISS[ÃA]O)\s*[\s:]*(\d{2}[\/\-]\d{2}[\/\-]\d{4})/i);
+    // Extrair número da nota - múltiplos padrões
+    let numeroNota = 'SEM_NUMERO';
+    
+    // Padrão 1: "NF-e" ou "NOTA FISCAL" seguido de número
+    let numeroNotaMatch = text.match(/(?:NF-e|NOTA\s*FISCAL|N\.?\s*F\.?)[:\s]*N[ºª°]?\.?\s*(\d{6,})/i);
+    if (numeroNotaMatch) numeroNota = numeroNotaMatch[1];
+    
+    // Padrão 2: Apenas "Nº" seguido de número
+    if (numeroNota === 'SEM_NUMERO') {
+      numeroNotaMatch = text.match(/N[ºª°]\.?\s*(\d{6,})/i);
+      if (numeroNotaMatch) numeroNota = numeroNotaMatch[1];
+    }
+    
+    // Padrão 3: Procurar número de 6+ dígitos após palavras-chave
+    if (numeroNota === 'SEM_NUMERO') {
+      numeroNotaMatch = text.match(/(?:NÚMERO|NUMERO|NUM)[:\s]*(\d{6,})/i);
+      if (numeroNotaMatch) numeroNota = numeroNotaMatch[1];
+    }
+    
+    console.log('Número da nota encontrado:', numeroNota);
+
+    // Série
+    const serieMatch = text.match(/(?:S[ÉE]RIE|SERIE)[:\s]*(\d+)/i);
+    const serie = serieMatch ? serieMatch[1] : '1';
+    console.log('Série encontrada:', serie);
+    
+    // Data de emissão
+    const dataEmissaoMatch = text.match(/(?:EMISS[ÃA]O|DATA\s*(?:DE\s*)?EMISS[ÃA]O)[:\s]*(\d{2}[\/\-]\d{2}[\/\-]\d{4})/i);
+    const dataEmissao = dataEmissaoMatch ? dataEmissaoMatch[1].split(/[\/\-]/).reverse().join('-') : new Date().toISOString().split('T')[0];
+    console.log('Data emissão:', dataEmissao);
     
     // Chave de acesso - 44 dígitos
     const chaveAcessoMatch = text.match(/(\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4}\s*\d{4})/);
+    const chaveAcesso = chaveAcessoMatch ? chaveAcessoMatch[1].replace(/\s/g, '') : null;
+    console.log('Chave de acesso:', chaveAcesso ? 'Encontrada' : 'Não encontrada');
     
-    // Emitente (geralmente aparece após "RAZ" ou "NOME")
-    const emitenteMatch = text.match(/(?:RAZ[ÃA]O\s*SOCIAL|NOME|EMITENTE)[:\s]*([^\n]{10,100})/i);
+    // Emitente - múltiplos padrões
+    let emitenteNome = 'NÃO IDENTIFICADO';
+    
+    // Padrão 1: "RAZÃO SOCIAL" ou "NOME"
+    let emitenteMatch = text.match(/(?:RAZ[ÃA]O\s*SOCIAL|NOME\s*(?:EMPRESARIAL)?)[:\s]*([^\n]{5,100})/i);
+    if (emitenteMatch) {
+      emitenteNome = emitenteMatch[1].trim();
+    } else {
+      // Padrão 2: "EMITENTE"
+      emitenteMatch = text.match(/EMITENTE[:\s]*([^\n]{5,100})/i);
+      if (emitenteMatch) emitenteNome = emitenteMatch[1].trim();
+    }
+    
+    // Limpar nome do emitente (remover espaços extras, tabs, etc)
+    emitenteNome = emitenteNome.replace(/\s+/g, ' ').trim();
+    console.log('Emitente encontrado:', emitenteNome);
+    
+    // CNPJ do Emitente
     const emitenteCnpjMatch = text.match(/(?:CNPJ|CPF)[:\s]*(\d{2}\.?\d{3}\.?\d{3}[\/\\]?\d{4}[\-]?\d{2})/i);
+    const emitenteCnpj = emitenteCnpjMatch ? emitenteCnpjMatch[1].replace(/[^\d]/g, '') : '';
+    console.log('CNPJ Emitente:', emitenteCnpj || 'Não encontrado');
     
-    // Destinatário/Cliente
-    const destinatarioMatch = text.match(/(?:DESTINAT[ÁA]RIO[\/\\]?REMETENTE|CLIENTE|TOMADOR)[:\s]*([^\n]{10,100})/i);
+    // Destinatário/Cliente - múltiplos padrões
+    let destinatarioNome = 'NÃO IDENTIFICADO';
+    
+    // Padrão 1: "DESTINATÁRIO" ou "REMETENTE"
+    let destinatarioMatch = text.match(/(?:DESTINAT[ÁA]RIO[\/\\]?REMETENTE|DESTINAT[ÁA]RIO)[:\s]*([^\n]{5,100})/i);
+    if (destinatarioMatch) {
+      destinatarioNome = destinatarioMatch[1].trim();
+    } else {
+      // Padrão 2: "CLIENTE" ou "TOMADOR"
+      destinatarioMatch = text.match(/(?:CLIENTE|TOMADOR)[:\s]*([^\n]{5,100})/i);
+      if (destinatarioMatch) destinatarioNome = destinatarioMatch[1].trim();
+    }
+    
+    // Limpar nome do destinatário
+    destinatarioNome = destinatarioNome.replace(/\s+/g, ' ').trim();
+    console.log('Destinatário encontrado:', destinatarioNome);
     
     // Segundo CNPJ (geralmente do destinatário)
     const allCnpjMatches = text.match(/(?:CNPJ|CPF)[:\s]*(\d{2}\.?\d{3}\.?\d{3}[\/\\]?\d{4}[\-]?\d{2})/gi);
     let destCnpj = '';
     if (allCnpjMatches && allCnpjMatches.length > 1) {
-      destCnpj = allCnpjMatches[1].match(/(\d{2}\.?\d{3}\.?\d{3}[\/\\]?\d{4}[\-]?\d{2})/)[1];
+      const match = allCnpjMatches[1].match(/(\d{2}\.?\d{3}\.?\d{3}[\/\\]?\d{4}[\-]?\d{2})/);
+      if (match) destCnpj = match[1].replace(/[^\d]/g, '');
     }
+    console.log('CNPJ Destinatário:', destCnpj || 'Não encontrado');
     
     // Valor total (procurar por padrões como "VALOR TOTAL" ou "TOTAL DA NOTA")
     const valorTotalMatch = text.match(/(?:VALOR\s*TOTAL|TOTAL\s*(?:DA\s*)?(?:NOTA|NF)|VL\.?\s*TOTAL)[:\s]*R?\$?\s*([\d.,]+)/i);
+    const valorTotal = valorTotalMatch ? parseFloat(valorTotalMatch[1].replace(/\./g, '').replace(',', '.')) : 0;
+    console.log('Valor total:', valorTotal);
     
     // Duplicatas - múltiplos padrões
     const duplicatas = [];
@@ -198,19 +265,21 @@ async function extrairDadosPDF(pdfBuffer) {
     }
 
     const resultado = {
-      numeroNota: numeroNotaMatch ? numeroNotaMatch[1] : 'SEM_NUMERO',
-      serie: serieMatch ? serieMatch[1] : '1',
-      dataEmissao: dataEmissaoMatch ? dataEmissaoMatch[1].split(/[\/\-]/).reverse().join('-') : new Date().toISOString().split('T')[0],
-      chaveAcesso: chaveAcessoMatch ? chaveAcessoMatch[1].replace(/\s/g, '') : null,
-      emitenteNome: emitenteMatch ? emitenteMatch[1].trim() : 'NÃO IDENTIFICADO',
-      emitenteCnpj: emitenteCnpjMatch ? emitenteCnpjMatch[1].replace(/[^\d]/g, '') : '',
-      destinatarioNome: destinatarioMatch ? destinatarioMatch[1].trim() : 'NÃO IDENTIFICADO',
-      destinatarioCnpj: destCnpj.replace(/[^\d]/g, ''),
-      valorTotal: valorTotalMatch ? parseFloat(valorTotalMatch[1].replace(/\./g, '').replace(',', '.')) : 0,
+      numeroNota: numeroNota,
+      serie: serie,
+      dataEmissao: dataEmissao,
+      chaveAcesso: chaveAcesso,
+      emitenteNome: emitenteNome,
+      emitenteCnpj: emitenteCnpj,
+      destinatarioNome: destinatarioNome,
+      destinatarioCnpj: destCnpj,
+      valorTotal: valorTotal,
       duplicatas: duplicatas
     };
 
-    console.log('Dados extraídos do PDF:', resultado);
+    console.log('=== RESULTADO FINAL ===');
+    console.log(JSON.stringify(resultado, null, 2));
+    console.log('=======================');
 
     // Se não encontrou duplicatas e tem valor total, criar duplicata padrão
     if (resultado.duplicatas.length === 0 && resultado.valorTotal > 0) {
