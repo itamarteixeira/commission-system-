@@ -1,23 +1,19 @@
 {
   "name": "commission-system",
-  "version": "1.0.0",
-  "description": "Sistema de Gestão de Comissões com importação de XML e PDF",
+  "version": "2.0.0",
+  "description": "Sistema de Gestão de Comissões - PostgreSQL",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node server.js"
   },
-  "keywords": ["commission", "xml", "pdf", "nfe", "invoice"],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
     "xml2js": "^0.6.2",
-    "sqlite3": "^5.1.7",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.11.3"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.2"
+  "engines": {
+    "node": ">=14.0.0"
   }
 }
